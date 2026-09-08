@@ -1,0 +1,19 @@
+Initializing Steam
+=================
+By submitting 'RunStats' to the workshop,
+you agree to the Steam Workshop terms of service:
+https://steamcommunity.com/sharedfiles/workshoplegalagreement
+=================
+Logged in as user 'LordWildling'.
+Using workshop item ID 3797791393 from mod_id.txt
+Querying existing workshop item details... 
+Uploading 'RunStats' to the steam workshop with item ID 3797791393...
+Status: k_EItemUpdateStatusPreparingContent
+Status: k_EItemUpdateStatusUploadingContent
+Status: k_EItemUpdateStatusUploadingContent
+Status: k_EItemUpdateStatusUploadingContent
+Status: k_EItemUpdateStatusCommittingChanges
+Status: k_EItemUpdateStatusCommittingChanges
+Status: k_EItemUpdateStatusInvalid
+No modifications were made to dependencies.
+Successfully uploaded 'RunStats' to the workshop with id 3797791393! Browsing to the item in Steam.

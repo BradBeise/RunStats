@@ -1,0 +1,9 @@
+{
+  "title": "RunStats",
+  "description": "[h1]RunStats[/h1]\nTrack detailed per-player statistics throughout your current Slay the Spire 2 run.\n\n[h2]Features[/h2]\n[list]\n[*]Seven focused tabs: Damage, Healing / Block, Kills, Cards, Economy, Relics, and Potions\n[*]Per-player totals plus a combined Team column in co-op\n[*]Most Played Card display\n[*]Steam player names for clear multiplayer columns\n[*]Statistics remain available on defeat and victory screens\n[*]Safe save-and-continue support using separate RunStats sidecar files\n[/list]\n\n[h2]Multiplayer[/h2]\nRunStats is client-optional and does not affect gameplay. Friends without RunStats can join your game.\n\n[h2]Compatibility[/h2]\nSlay the Spire 2 public branch v0.107.1\nRunStats v0.1.0\n\nSlay the Spire 2 is in Early Access. A future game update may require a RunStats compatibility update.",
+  "visibility": "public",
+  "changeNote": "Initial public release: RunStats v0.1.0",
+  "tags": [],
+  "dependencies": [],
+  "contentDescriptors": []
+}
