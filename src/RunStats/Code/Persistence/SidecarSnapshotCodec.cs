@@ -12,7 +12,8 @@ namespace RunStats.Persistence;
 
 public static class SidecarSnapshotCodec
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
+    public const int PreviousSchemaVersion = 1;
     public const string ModId = "com.bradbeise.runstats";
     public const int MaxJsonCharacters = 1_048_576;
 
@@ -84,7 +85,8 @@ public static class SidecarSnapshotCodec
 
         if (document is null || document.Identity is null || document.Players is null ||
             document.Diagnostics is null || document.AssistedOwnership is null ||
-            document.SchemaVersion != CurrentSchemaVersion ||
+            document.SchemaVersion is not (PreviousSchemaVersion or CurrentSchemaVersion) ||
+            document.SnapshotSchemaVersion != document.SchemaVersion ||
             !string.Equals(document.ModId, ModId, StringComparison.Ordinal))
         {
             return SidecarLoadResult.SchemaMismatch;
@@ -130,10 +132,17 @@ public static class SidecarSnapshotCodec
                 foreach (var value in playerDocument.Totals)
                 {
                     if (!Enum.TryParse(value.Kind, false, out StatKind kind) ||
-                        !Enum.IsDefined(kind) || !totals.TryAdd(kind, value.Value))
+                        !Enum.IsDefined(kind) ||
+                        (document.SchemaVersion == PreviousSchemaVersion && kind == StatKind.PoisonApplied) ||
+                        !totals.TryAdd(kind, value.Value))
                     {
                         return SidecarLoadResult.InvalidSnapshot;
                     }
+                }
+
+                if (document.SchemaVersion == PreviousSchemaVersion)
+                {
+                    totals.Add(StatKind.PoisonApplied, 0);
                 }
 
                 var cards = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -166,14 +175,25 @@ public static class SidecarSnapshotCodec
                 }
 
                 if (!Enum.TryParse(value.Kind, false, out DiagnosticKind kind) ||
-                    !Enum.IsDefined(kind) || !diagnostics.TryAdd(kind, value.Value))
+                    !Enum.IsDefined(kind) ||
+                    (document.SchemaVersion == PreviousSchemaVersion &&
+                     kind > DiagnosticKind.DuplicateEventSuppressed) ||
+                    !diagnostics.TryAdd(kind, value.Value))
                 {
                     return SidecarLoadResult.InvalidSnapshot;
                 }
             }
 
+
+            if (document.SchemaVersion == PreviousSchemaVersion)
+            {
+                diagnostics.Add(DiagnosticKind.UnattributedPoisonApplication, 0);
+                diagnostics.Add(DiagnosticKind.UnsupportedPoisonDamage, 0);
+                diagnostics.Add(DiagnosticKind.UnsponsoredAccelerantTrigger, 0);
+            }
+
             snapshot = new RunStatsSnapshot(
-                document.SnapshotSchemaVersion,
+                RunStatsSnapshot.CurrentSchemaVersion,
                 document.Lifecycle,
                 identity,
                 document.Revision,

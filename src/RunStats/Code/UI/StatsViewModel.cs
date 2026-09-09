@@ -42,6 +42,7 @@ public sealed record StatsViewModel(
         Array.AsReadOnly(new[]
         {
             (StatKind.DamageDealt, "Damage Dealt"),
+            (StatKind.PoisonApplied, "Poison Applied"),
             (StatKind.DamageTaken, "Damage Taken"),
             (StatKind.AssistedDamage, "Assisted Damage"),
             (StatKind.AssistedDamagePrevented, "Assisted Damage Prevented"),
@@ -66,7 +67,7 @@ public sealed record StatsViewModel(
     private static readonly ReadOnlyCollection<(string Title, StatKind[] Kinds)> SectionDefinitions =
         Array.AsReadOnly(new[]
         {
-            ("DAMAGE", new[] { StatKind.DamageDealt, StatKind.DamageTaken, StatKind.AssistedDamage, StatKind.AssistedDamagePrevented }),
+            ("DAMAGE", new[] { StatKind.DamageDealt, StatKind.PoisonApplied, StatKind.DamageTaken, StatKind.AssistedDamage, StatKind.AssistedDamagePrevented }),
             ("HEALING / BLOCK", new[] { StatKind.HealingDone, StatKind.MaxHpGained, StatKind.BlockGained, StatKind.BlockLost }),
             ("KILLS", new[] { StatKind.EnemiesKilled, StatKind.EliteEnemiesKilled, StatKind.BossesKilled }),
             ("CARDS", new[] { StatKind.CardsPlayed, StatKind.CardsObtained, StatKind.CardsUpgraded, StatKind.CardsRemoved }),

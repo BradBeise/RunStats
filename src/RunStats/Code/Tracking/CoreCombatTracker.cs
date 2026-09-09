@@ -35,19 +35,32 @@ public sealed class CoreCombatTracker
         }
 
         _state.TryApply(StatMutation.Add(sourcePlayerNetId.Value, StatKind.DamageDealt, actualDamage));
-        if (!targetKilled || !_killCredits.TryCredit(targetToken))
+        if (!targetKilled)
         {
             return;
         }
 
-        _state.TryApply(StatMutation.Add(sourcePlayerNetId.Value, StatKind.EnemiesKilled));
+        RecordAttributedKill(sourcePlayerNetId.Value, targetToken, roomKind);
+    }
+
+    public void RecordAttributedKill(
+        ulong sourcePlayerNetId,
+        object targetToken,
+        CombatRoomKind roomKind)
+    {
+        if (sourcePlayerNetId == 0 || !_killCredits.TryCredit(targetToken))
+        {
+            return;
+        }
+
+        _state.TryApply(StatMutation.Add(sourcePlayerNetId, StatKind.EnemiesKilled));
         if (roomKind == CombatRoomKind.Elite)
         {
-            _state.TryApply(StatMutation.Add(sourcePlayerNetId.Value, StatKind.EliteEnemiesKilled));
+            _state.TryApply(StatMutation.Add(sourcePlayerNetId, StatKind.EliteEnemiesKilled));
         }
         else if (roomKind == CombatRoomKind.Boss)
         {
-            _state.TryApply(StatMutation.Add(sourcePlayerNetId.Value, StatKind.BossesKilled));
+            _state.TryApply(StatMutation.Add(sourcePlayerNetId, StatKind.BossesKilled));
         }
     }
 

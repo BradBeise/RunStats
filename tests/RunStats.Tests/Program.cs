@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using RunStats.Models;
 using RunStats.Multiplayer;
@@ -76,6 +77,7 @@ internal static class Program
             ("Stats layout scales at narrow, default, and wide bounds", StatsLayoutScalesAtRequiredBounds),
             ("Ancient history excludes initial HP from healing", AncientHistoryHealingIsExcluded),
             ("Sidecar JSON round-trips every statistic deterministically", SidecarRoundTripsDeterministically),
+            ("Schema-one sidecars migrate poison fields to zero", SidecarSchemaOneMigratesPoisonFields),
             ("Sidecar rejects identity and vanilla-checkpoint mismatches", SidecarRejectsMismatches),
             ("Sidecar rejects schema drift, corruption, and unknown fields", SidecarRejectsMalformedDocuments),
             ("Sidecar store keeps singleplayer and multiplayer isolated", SidecarModesAreIsolated),
@@ -86,7 +88,21 @@ internal static class Program
             ("Run end archives only matching RunStats files", SidecarArchiveIsScoped),
             ("Successful vanilla save confirmation promotes one checkpoint", SaveConfirmationPromotesCheckpoint),
             ("Debounced mutation checkpoints remain pending only", DebouncedCheckpointsRemainPending),
-            ("Sidecars round-trip and validate assisted ownership", SidecarAssistedOwnershipIsValidated)
+            ("Sidecars round-trip and validate assisted ownership", SidecarAssistedOwnershipIsValidated),
+            ("Poison applications preserve cycle ownership", PoisonApplicationsPreserveCycleOwnership),
+            ("Two-player poison fractions alternate fairly", TwoPlayerPoisonFractionsAlternate),
+            ("Three-player poison remainders rotate over three triggers", ThreePlayerPoisonFractionsRotate),
+            ("One-to-four-player poison allocation conserves varied shares", OneToFourPlayerPoisonAllocationIsExact),
+            ("Later poison applications update cumulative shares", LaterPoisonApplicationsUpdateShares),
+            ("Unattributed poison remains in the damage denominator", UnattributedPoisonRemainsUncredited),
+            ("Poison kill selection follows damage then applied hierarchy", PoisonKillSelectionUsesApprovedHierarchy),
+            ("Accelerant sponsors preserve application order", AccelerantSponsorsPreserveOrder),
+            ("Accelerant reconciliation fails closed", AccelerantReconciliationFailsClosed),
+            ("Accelerant assist excludes sponsor and unattributed damage", AccelerantAssistExcludesOwnAndUnattributed),
+            ("Reliable poison source categories feed one central tracker", ReliablePoisonSourcesUseCentralTracker),
+            ("Poison trigger integration updates damage assist and kills", PoisonTriggerIntegrationUpdatesStats),
+            ("Lethal poison allocates actual HP loss before cycle reset", LethalPoisonAllocatesBeforeReset),
+            ("Unattributed runtime poison stays uncredited", UnattributedRuntimePoisonStaysUncredited)
         };
 
         var failures = 0;
@@ -778,7 +794,7 @@ internal static class Program
         True(StatsViewModel.TryCreate(state.CaptureSnapshot(), out var viewModel));
         Equal(1, viewModel!.ColumnHeaders.Count);
         Equal("PLAYER 1", viewModel.ColumnHeaders[0]);
-        Equal(21, viewModel.Rows.Count);
+        Equal(22, viewModel.Rows.Count);
         Equal("8", UiRow(viewModel, "Damage Dealt").PlayerValues[0]);
         Equal("CARD.BASH", UiRow(viewModel, "Most Played Card").PlayerValues[0]);
         Equal<string?>(null, UiRow(viewModel, "Damage Dealt").TeamValue);
@@ -794,12 +810,17 @@ internal static class Program
         var state = CreateState(20, 10);
         state.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, 7));
         state.TryApply(StatMutation.Add(20, StatKind.AssistedDamage, 5));
+        state.TryApply(StatMutation.Add(10, StatKind.PoisonApplied, 6));
+        state.TryApply(StatMutation.Add(20, StatKind.PoisonApplied, 4));
 
         True(StatsViewModel.TryCreate(state.CaptureSnapshot(), out var viewModel));
         SequenceEqual(new[] { "PLAYER 1", "PLAYER 2", "TEAM" }, viewModel!.ColumnHeaders);
         var row = UiRow(viewModel, "Assisted Damage");
         SequenceEqual(new[] { "7", "5" }, row.PlayerValues);
         Equal("12", row.TeamValue);
+        var poison = UiRow(viewModel, "Poison Applied");
+        SequenceEqual(new[] { "6", "4" }, poison.PlayerValues);
+        Equal("10", poison.TeamValue);
     }
 
     private static void StatsUiFormatsNumbersDeterministically()
@@ -863,7 +884,18 @@ internal static class Program
         SequenceEqual(
             new[] { "DAMAGE", "HEALING / BLOCK", "KILLS", "CARDS", "ECONOMY", "RELICS", "POTIONS" },
             viewModel!.Sections.Select(section => section.Title).ToArray());
-        Equal(20, viewModel.Sections.Sum(section => section.Rows.Count));
+        Equal(21, viewModel.Sections.Sum(section => section.Rows.Count));
+        SequenceEqual(
+            new[]
+            {
+                StatKind.DamageDealt,
+                StatKind.PoisonApplied,
+                StatKind.DamageTaken,
+                StatKind.AssistedDamage,
+                StatKind.AssistedDamagePrevented
+            },
+            viewModel.Sections.Single(section => section.Title == "DAMAGE")
+                .Rows.Select(row => row.Kind!.Value).ToArray());
         Equal("CARD.BASH", viewModel.PlayerMostPlayedCardIds[0]);
         True(viewModel.Sections.SelectMany(section => section.Rows).All(row => row.Kind is not null));
     }
@@ -918,6 +950,49 @@ internal static class Program
         Equal(4L, restored.GetDiagnostic(DiagnosticKind.AmbiguousAssistedDamage));
     }
 
+    private static void SidecarSchemaOneMigratesPoisonFields()
+    {
+        var state = CreateState(10);
+        state.TryApply(StatMutation.Add(10, StatKind.DamageDealt, 9));
+        var snapshot = state.CaptureSnapshot();
+        var root = JsonNode.Parse(SidecarSnapshotCodec.Serialize(snapshot, 55))!.AsObject();
+        root["schema_version"] = SidecarSnapshotCodec.PreviousSchemaVersion;
+        root["snapshot_schema_version"] = 1;
+
+        foreach (var player in root["players"]!.AsArray())
+        {
+            var totals = player!["totals"]!.AsArray();
+            var poison = totals.Single(value =>
+                value!["kind"]!.GetValue<string>() == nameof(StatKind.PoisonApplied));
+            totals.Remove(poison);
+        }
+
+        var diagnostics = root["diagnostics"]!.AsArray();
+        foreach (var kind in new[]
+                 {
+                     DiagnosticKind.UnattributedPoisonApplication,
+                     DiagnosticKind.UnsupportedPoisonDamage,
+                     DiagnosticKind.UnsponsoredAccelerantTrigger
+                 })
+        {
+            var entry = diagnostics.Single(value =>
+                value!["kind"]!.GetValue<string>() == kind.ToString());
+            diagnostics.Remove(entry);
+        }
+
+        Equal(
+            SidecarLoadResult.Loaded,
+            SidecarSnapshotCodec.TryDeserialize(
+                root.ToJsonString(),
+                snapshot.Identity!,
+                55,
+                out var migrated));
+        Equal(RunStatsSnapshot.CurrentSchemaVersion, migrated!.SchemaVersion);
+        Equal(9L, migrated.Players[10].GetTotal(StatKind.DamageDealt));
+        Equal(0L, migrated.Players[10].GetTotal(StatKind.PoisonApplied));
+        Equal(0L, migrated.GetDiagnostic(DiagnosticKind.UnsupportedPoisonDamage));
+    }
+
     private static void SidecarRejectsMismatches()
     {
         var state = CreateState(10);
@@ -943,7 +1018,7 @@ internal static class Program
         Equal(
             SidecarLoadResult.SchemaMismatch,
             SidecarSnapshotCodec.TryDeserialize(
-                json.Replace("\"schema_version\": 1", "\"schema_version\": 99", StringComparison.Ordinal),
+                json.Replace("\"schema_version\": 2", "\"schema_version\": 99", StringComparison.Ordinal),
                 snapshot.Identity!,
                 50,
                 out _));
@@ -951,6 +1026,17 @@ internal static class Program
             SidecarLoadResult.InvalidJson,
             SidecarSnapshotCodec.TryDeserialize(
                 json.Replace("\"mod_id\":", "\"unknown\": true, \"mod_id\":", StringComparison.Ordinal),
+                snapshot.Identity!,
+                50,
+                out _));
+        var incomplete = JsonNode.Parse(json)!.AsObject();
+        var totals = incomplete["players"]![0]!["totals"]!.AsArray();
+        totals.Remove(totals.Single(value =>
+            value!["kind"]!.GetValue<string>() == nameof(StatKind.PoisonApplied)));
+        Equal(
+            SidecarLoadResult.InvalidSnapshot,
+            SidecarSnapshotCodec.TryDeserialize(
+                incomplete.ToJsonString(),
                 snapshot.Identity!,
                 50,
                 out _));
@@ -1181,6 +1267,308 @@ internal static class Program
                 out _));
     }
 
+    private static void PoisonApplicationsPreserveCycleOwnership()
+    {
+        var enemy = new object();
+        var ledger = new PoisonContributionLedger();
+        var first = ledger.ObserveAmount(enemy, 0, 6, 10);
+        True(first.Accepted);
+        Equal(6L, first.CreditedPoisonApplied);
+        var reduced = ledger.ObserveAmount(enemy, 6, 3, null);
+        True(reduced.Accepted);
+        Equal(0L, reduced.UnattributedPoisonApplied);
+        var unknown = ledger.ObserveAmount(enemy, 3, 5, null);
+        Equal(2L, unknown.UnattributedPoisonApplied);
+        True(ledger.ObserveAmount(enemy, 5, 0, null).CycleReset);
+        Equal(4L, ledger.ObserveAmount(enemy, 0, 4, 20).CreditedPoisonApplied);
+
+        True(ledger.TryAllocateDamage(enemy, 4, out var allocation));
+        Equal(4L, allocation.PlayerDamage[20]);
+        True(!allocation.PlayerDamage.ContainsKey(10));
+    }
+
+    private static void TwoPlayerPoisonFractionsAlternate()
+    {
+        var enemy = new object();
+        var ledger = EqualPoisonLedger(enemy, 10, 20);
+
+        True(ledger.TryAllocateDamage(enemy, 5, out var first));
+        True(ledger.TryAllocateDamage(enemy, 5, out var second));
+        SequenceEqual(new long[] { 3, 2 }, new[] { first.PlayerDamage[10], first.PlayerDamage[20] });
+        SequenceEqual(new long[] { 2, 3 }, new[] { second.PlayerDamage[10], second.PlayerDamage[20] });
+    }
+
+    private static void ThreePlayerPoisonFractionsRotate()
+    {
+        var enemy = new object();
+        var ledger = EqualPoisonLedger(enemy, 10, 20, 30);
+        var onePointTotals = new Dictionary<ulong, long> { [10] = 0, [20] = 0, [30] = 0 };
+        for (var trigger = 0; trigger < 3; trigger++)
+        {
+            True(ledger.TryAllocateDamage(enemy, 1, out var allocation));
+            foreach (var entry in allocation.PlayerDamage)
+            {
+                onePointTotals[entry.Key] += entry.Value;
+            }
+        }
+        SequenceEqual(new long[] { 1, 1, 1 }, onePointTotals.OrderBy(entry => entry.Key).Select(entry => entry.Value).ToArray());
+
+        var secondEnemy = new object();
+        ledger = EqualPoisonLedger(secondEnemy, 10, 20, 30);
+        var twoPointTotals = new Dictionary<ulong, long> { [10] = 0, [20] = 0, [30] = 0 };
+        for (var trigger = 0; trigger < 3; trigger++)
+        {
+            True(ledger.TryAllocateDamage(secondEnemy, 2, out var allocation));
+            foreach (var entry in allocation.PlayerDamage)
+            {
+                twoPointTotals[entry.Key] += entry.Value;
+            }
+        }
+        SequenceEqual(new long[] { 2, 2, 2 }, twoPointTotals.OrderBy(entry => entry.Key).Select(entry => entry.Value).ToArray());
+    }
+
+    private static void OneToFourPlayerPoisonAllocationIsExact()
+    {
+        for (var playerCount = 1; playerCount <= 4; playerCount++)
+        {
+            var enemy = new object();
+            var ledger = new PoisonContributionLedger();
+            long poisonAmount = 0;
+            long totalWeight = 0;
+            for (var player = 1; player <= playerCount; player++)
+            {
+                // Deliberately unequal shares: 1, 2, 3, and 4 poison applied.
+                var weight = player;
+                ledger.ObserveAmount(enemy, poisonAmount, poisonAmount + weight, (ulong)(player * 10));
+                poisonAmount += weight;
+                totalWeight += weight;
+            }
+
+            var totals = Enumerable.Range(1, playerCount)
+                .ToDictionary(player => (ulong)(player * 10), _ => 0L);
+            long totalDamage = 0;
+            for (var trigger = 0; trigger < totalWeight; trigger++)
+            {
+                True(ledger.TryAllocateDamage(enemy, 1, out var allocation));
+                Equal(1L, allocation.CreditedDamage + allocation.UnattributedDamage);
+                foreach (var entry in allocation.PlayerDamage)
+                {
+                    totals[entry.Key] += entry.Value;
+                }
+                totalDamage += allocation.ActualDamage;
+            }
+
+            Equal(totalWeight, totalDamage);
+            for (var player = 1; player <= playerCount; player++)
+            {
+                Equal((long)player, totals[(ulong)(player * 10)]);
+            }
+        }
+
+        var fourEqualEnemy = new object();
+        var fourEqualLedger = EqualPoisonLedger(fourEqualEnemy, 10, 20, 30, 40);
+        var recipients = new List<ulong>();
+        for (var trigger = 0; trigger < 4; trigger++)
+        {
+            True(fourEqualLedger.TryAllocateDamage(fourEqualEnemy, 1, out var allocation));
+            recipients.Add(allocation.PlayerDamage.Single(entry => entry.Value == 1).Key);
+        }
+        SequenceEqual(new ulong[] { 10, 20, 30, 40 }, recipients);
+    }
+
+    private static void UnattributedPoisonRemainsUncredited()
+    {
+        var enemy = new object();
+        var ledger = new PoisonContributionLedger();
+        ledger.ObserveAmount(enemy, 0, 2, 10);
+        ledger.ObserveAmount(enemy, 2, 4, null);
+
+        True(ledger.TryAllocateDamage(enemy, 4, out var allocation));
+        Equal(2L, allocation.PlayerDamage[10]);
+        Equal(2L, allocation.UnattributedDamage);
+        Equal(2L, allocation.CreditedDamage);
+    }
+
+    private static void LaterPoisonApplicationsUpdateShares()
+    {
+        var enemy = new object();
+        var ledger = EqualPoisonLedger(enemy, 10, 20);
+        True(ledger.TryAllocateDamage(enemy, 1, out var first));
+        Equal(1L, first.PlayerDamage[10]);
+        Equal(0L, first.PlayerDamage[20]);
+
+        Equal(1L, ledger.ObserveAmount(enemy, 2, 3, 10).CreditedPoisonApplied);
+        True(ledger.TryAllocateDamage(enemy, 3, out var second));
+        Equal(2L, second.PlayerDamage[10]);
+        Equal(1L, second.PlayerDamage[20]);
+    }
+
+    private static void PoisonKillSelectionUsesApprovedHierarchy()
+    {
+        var damageWinnerEnemy = new object();
+        var ledger = new PoisonContributionLedger();
+        ledger.ObserveAmount(damageWinnerEnemy, 0, 6, 10);
+        ledger.ObserveAmount(damageWinnerEnemy, 6, 8, 20);
+        True(ledger.TryAllocateDamage(damageWinnerEnemy, 4, out _));
+        Equal<ulong?>(10, ledger.SelectKillRecipient(damageWinnerEnemy, 123));
+
+        var appliedWinnerEnemy = new object();
+        ledger.ObserveAmount(appliedWinnerEnemy, 0, 3, 10);
+        ledger.ObserveAmount(appliedWinnerEnemy, 3, 5, 20);
+        Equal<ulong?>(10, ledger.SelectKillRecipient(appliedWinnerEnemy, 123));
+
+        var tiedEnemy = new object();
+        ledger.ObserveAmount(tiedEnemy, 0, 1, 10);
+        ledger.ObserveAmount(tiedEnemy, 1, 2, 20);
+        var first = ledger.SelectKillRecipient(tiedEnemy, 9876);
+        var second = ledger.SelectKillRecipient(tiedEnemy, 9876);
+        Equal(first, second);
+        True(first is 10 or 20);
+    }
+
+    private static void AccelerantSponsorsPreserveOrder()
+    {
+        var ledger = new AccelerantSponsorLedger();
+        True(ledger.ObserveApplication(10, 2));
+        True(ledger.ObserveApplication(20, 1));
+        var live = new Dictionary<ulong, long> { [10] = 2, [20] = 1 };
+        var living = new HashSet<ulong> { 10, 20 };
+
+        SequenceEqual<ulong?>(new ulong?[] { 10, 10, 20 }, ledger.ResolveSponsors(3, live, living));
+        SequenceEqual<ulong?>(new ulong?[] { 10, 10 }, ledger.ResolveSponsors(2, live, living));
+        living.Remove(10);
+        SequenceEqual<ulong?>(new ulong?[] { 20 }, ledger.ResolveSponsors(1, live, living));
+    }
+
+    private static void AccelerantReconciliationFailsClosed()
+    {
+        var ledger = new AccelerantSponsorLedger();
+        ledger.ObserveApplication(10, 1);
+        var sponsors = ledger.ResolveSponsors(
+            2,
+            new Dictionary<ulong, long> { [10] = 2 },
+            new HashSet<ulong> { 10 });
+        SequenceEqual<ulong?>(new ulong?[] { null, null }, sponsors);
+    }
+
+    private static void AccelerantAssistExcludesOwnAndUnattributed()
+    {
+        var enemy = new object();
+        var ledger = new PoisonContributionLedger();
+        ledger.ObserveAmount(enemy, 0, 2, 10);
+        ledger.ObserveAmount(enemy, 2, 4, 20);
+        ledger.ObserveAmount(enemy, 4, 6, null);
+        True(ledger.TryAllocateDamage(enemy, 6, out var allocation));
+
+        True(AccelerantAssistCalculator.TryCalculate(allocation, 10, out var assisted));
+        Equal(2L, assisted);
+    }
+
+    private static PoisonContributionLedger EqualPoisonLedger(object enemy, params ulong[] players)
+    {
+        var ledger = new PoisonContributionLedger();
+        long amount = 0;
+        foreach (var player in players)
+        {
+            ledger.ObserveAmount(enemy, amount, amount + 1, player);
+            amount++;
+        }
+        return ledger;
+    }
+
+    private static void ReliablePoisonSourcesUseCentralTracker()
+    {
+        var state = CreateState(10);
+        var tracker = CreatePoisonTracker(state);
+        foreach (var amount in new[] { 2, 3, 4, 5 })
+        {
+            tracker.ObservePoisonAmount(new object(), 0, amount, 10);
+        }
+
+        // These four observations represent card, potion, relic, and delayed-power
+        // applications. Runtime provenance converges at the same power mutation hook.
+        Equal(14L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.PoisonApplied));
+    }
+
+    private static void PoisonTriggerIntegrationUpdatesStats()
+    {
+        var state = CreateState(10, 20);
+        var combat = new CoreCombatTracker(state);
+        var tracker = new PoisonStatTracker(
+            state,
+            combat,
+            new PoisonContributionLedger(),
+            new AccelerantSponsorLedger());
+        var enemy = new object();
+        tracker.ObservePoisonAmount(enemy, 0, 6, 10);
+        tracker.ObservePoisonAmount(enemy, 6, 10, 20);
+
+        True(tracker.RecordPoisonTrigger(enemy, 5, false, null, out _));
+        True(tracker.RecordPoisonTrigger(enemy, 5, true, 10, out _));
+        var killedTarget = new object();
+        tracker.RecordPoisonKill(enemy, killedTarget, CombatRoomKind.Boss, 42);
+        tracker.RecordPoisonKill(enemy, killedTarget, CombatRoomKind.Boss, 42);
+
+        var snapshot = state.CaptureSnapshot();
+        Equal(6L, snapshot.Players[10].GetTotal(StatKind.PoisonApplied));
+        Equal(4L, snapshot.Players[20].GetTotal(StatKind.PoisonApplied));
+        Equal(6L, snapshot.Players[10].GetTotal(StatKind.DamageDealt));
+        Equal(4L, snapshot.Players[20].GetTotal(StatKind.DamageDealt));
+        Equal(2L, snapshot.Players[10].GetTotal(StatKind.AssistedDamage));
+        Equal(1L, snapshot.Players[10].GetTotal(StatKind.EnemiesKilled));
+        Equal(1L, snapshot.Players[10].GetTotal(StatKind.BossesKilled));
+        Equal(0L, snapshot.Players[20].GetTotal(StatKind.EnemiesKilled));
+    }
+
+    private static void UnattributedRuntimePoisonStaysUncredited()
+    {
+        var state = CreateState(10);
+        var tracker = CreatePoisonTracker(state);
+        var enemy = new object();
+        tracker.ObservePoisonAmount(enemy, 0, 4, null);
+        True(tracker.RecordPoisonTrigger(enemy, 4, false, null, out var allocation));
+
+        var snapshot = state.CaptureSnapshot();
+        Equal(0L, snapshot.Players[10].GetTotal(StatKind.PoisonApplied));
+        Equal(0L, snapshot.Players[10].GetTotal(StatKind.DamageDealt));
+        Equal(4L, allocation.UnattributedDamage);
+        Equal(1L, snapshot.GetDiagnostic(DiagnosticKind.UnattributedPoisonApplication));
+    }
+
+    private static void LethalPoisonAllocatesBeforeReset()
+    {
+        var state = CreateState(10);
+        var tracker = CreatePoisonTracker(state);
+        var enemy = new object();
+        var killedTarget = new object();
+        tracker.ObservePoisonAmount(enemy, 0, 14, 10);
+
+        // The enemy has 10 HP, so a 14-stack trigger reports 10 actual HP lost.
+        True(tracker.RecordPoisonTrigger(enemy, 10, false, null, out var lethal));
+        Equal(10L, lethal.PlayerDamage[10]);
+        tracker.RecordPoisonKill(enemy, killedTarget, CombatRoomKind.Normal, 42);
+        tracker.ObservePoisonAmount(enemy, 0, 0, null);
+
+        var snapshot = state.CaptureSnapshot();
+        Equal(10L, snapshot.Players[10].GetTotal(StatKind.DamageDealt));
+        Equal(1L, snapshot.Players[10].GetTotal(StatKind.EnemiesKilled));
+        True(!tracker.RecordPoisonTrigger(enemy, 1, false, null, out _));
+
+        tracker.ObservePoisonAmount(enemy, 0, 3, 10);
+        True(tracker.RecordPoisonTrigger(enemy, 2, false, null, out _));
+        Equal(12L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.DamageDealt));
+    }
+
+    private static PoisonStatTracker CreatePoisonTracker(RunStatsState state)
+    {
+        var combat = new CoreCombatTracker(state);
+        return new PoisonStatTracker(
+            state,
+            combat,
+            new PoisonContributionLedger(),
+            new AccelerantSponsorLedger());
+    }
+
     private static void WithTemporaryDirectory(Action<string> action)
     {
         var root = Path.Combine(Path.GetTempPath(), "RunStats.Tests", Guid.NewGuid().ToString("N"));
@@ -1232,6 +1620,7 @@ internal static class Program
         StatKind.PotionsUsed => "Potions Used",
         StatKind.AssistedDamage => "Assisted Damage",
         StatKind.AssistedDamagePrevented => "Assisted Damage Prevented",
+        StatKind.PoisonApplied => "Poison Applied",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

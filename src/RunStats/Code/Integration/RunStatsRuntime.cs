@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
@@ -40,7 +41,16 @@ public static class RunStatsRuntime
     private static readonly CoreCombatTracker CombatTracker = new(State);
     private static readonly RunProgressTracker ProgressTracker = new(State);
     private static readonly UniqueContributorLedger ContributorLedger = new();
+    private static readonly PoisonContributionLedger PoisonContributionLedger = new();
+    private static readonly AccelerantSponsorLedger AccelerantSponsorLedger = new();
+    private static readonly PoisonStatTracker PoisonTracker = new(
+        State,
+        CombatTracker,
+        PoisonContributionLedger,
+        AccelerantSponsorLedger);
     private static readonly AsyncLocal<DamageAssistScope?> CurrentDamageScope = new();
+    private static readonly AsyncLocal<PoisonSequenceScope?> CurrentPoisonSequence = new();
+    private static readonly AsyncLocal<PoisonDamageCommandScope?> CurrentPoisonDamageCommand = new();
     private static readonly HashSet<string> LoggedFailures = new(StringComparer.Ordinal);
     private static readonly MethodInfo DamageCapMethod = GetModelMethod(nameof(AbstractModel.ModifyDamageCap));
     private static readonly MethodInfo HpLostBeforeMethod = GetModelMethod(nameof(AbstractModel.ModifyHpLostBeforeOsty));
@@ -129,6 +139,7 @@ public static class RunStatsRuntime
         }
 
         RunManager.Instance.RunStarted += OnRunStarted;
+        CombatManager.Instance.CombatEnded += OnCombatEnded;
         SaveManager.Instance.Saved += OnVanillaSaved;
         _persistence = new RunStatsPersistenceCoordinator(
             State,
@@ -148,6 +159,11 @@ public static class RunStatsRuntime
     {
         Safely(nameof(OnDamageGiven), () =>
         {
+            if (CurrentPoisonDamageCommand.Value?.IsPoison == true)
+            {
+                return;
+            }
+
             RecordAssistedDamage(target, result);
             var player = ResolvePlayer(dealer);
             ulong? sourcePlayerNetId = player?.NetId;
@@ -256,6 +272,177 @@ public static class RunStatsRuntime
                 ContributorLedger.ObserveContribution(power, ResolvePlayer(applier)?.NetId);
             }
         });
+    }
+
+    public static void OnPowerAmountChanged(
+        PowerModel power,
+        Creature? applier,
+        int previousAmount,
+        int currentAmount)
+    {
+        Safely(nameof(OnPowerAmountChanged), () =>
+        {
+            if (!IsRunActive())
+            {
+                return;
+            }
+
+            if (power is PoisonPower && power.Owner.IsEnemy)
+            {
+                PoisonTracker.ObservePoisonAmount(
+                    power.Owner,
+                    previousAmount,
+                    currentAmount,
+                    ResolvePlayer(applier)?.NetId);
+                return;
+            }
+
+            if (power is AccelerantPower && currentAmount > previousAmount)
+            {
+                var applierPlayer = ResolvePlayer(applier);
+                var ownerPlayer = ResolvePlayer(power.Owner);
+                var contributor = applierPlayer is not null && ownerPlayer is not null &&
+                                  applierPlayer.NetId == ownerPlayer.NetId
+                    ? applierPlayer.NetId
+                    : (ulong?)null;
+                PoisonTracker.ObserveAccelerantApplication(
+                    contributor,
+                    checked(currentAmount - previousAmount));
+            }
+        });
+    }
+
+    public static void OnPowerRemoved(PowerModel power)
+    {
+        Safely(nameof(OnPowerRemoved), () =>
+        {
+            if (IsRunActive() && power is PoisonPower && power.Owner.IsEnemy)
+            {
+                var damageScope = CurrentPoisonDamageCommand.Value;
+                if (damageScope is { IsPoison: true } &&
+                    ReferenceEquals(damageScope.PoisonOwner, power.Owner))
+                {
+                    // CreatureCmd.Damage removes a killed enemy's powers before it
+                    // returns the lethal DamageResult. Keep this cycle alive until
+                    // the wrapper allocates that final HP loss and attributes the kill.
+                    damageScope.DeferPoisonCycleReset();
+                    return;
+                }
+
+                PoisonTracker.ObservePoisonAmount(power.Owner, power.Amount, 0, null);
+            }
+        });
+    }
+
+    internal static PoisonSequenceScope BeginPoisonSequence(
+        PoisonPower power,
+        IReadOnlyList<Creature> participants,
+        ICombatState combatState)
+    {
+        var parent = CurrentPoisonSequence.Value;
+        PoisonSequenceScope? scope = null;
+        Safely(nameof(BeginPoisonSequence), () =>
+        {
+            var active = IsRunActive() && participants.Contains(power.Owner) && power.Amount > 0;
+            IReadOnlyList<ulong?> sponsors = Array.Empty<ulong?>();
+            if (active)
+            {
+                var livingPlayers = combatState.GetOpponentsOf(power.Owner)
+                    .Where(creature => creature.IsAlive && ResolvePlayer(creature) is not null)
+                    .ToArray();
+                var liveAmounts = livingPlayers.ToDictionary(
+                    creature => ResolvePlayer(creature)!.NetId,
+                    creature => (long)creature.GetPowerAmount<AccelerantPower>());
+                var livingIds = livingPlayers
+                    .Select(creature => ResolvePlayer(creature)!.NetId)
+                    .ToHashSet();
+                var iterations = Math.Min(
+                    power.Amount,
+                    checked(1 + livingPlayers.Sum(creature => creature.GetPowerAmount<AccelerantPower>())));
+                sponsors = AccelerantSponsorLedger.ResolveSponsors(
+                    Math.Max(iterations - 1, 0),
+                    liveAmounts,
+                    livingIds);
+            }
+
+            scope = new PoisonSequenceScope(parent, power, sponsors, active);
+            CurrentPoisonSequence.Value = scope;
+        });
+
+        scope ??= new PoisonSequenceScope(parent, power, Array.Empty<ulong?>(), false);
+        CurrentPoisonSequence.Value = scope;
+        return scope;
+    }
+
+    internal static void DetachPoisonSequence(PoisonSequenceScope scope)
+    {
+        if (ReferenceEquals(CurrentPoisonSequence.Value, scope))
+        {
+            CurrentPoisonSequence.Value = scope.Parent;
+        }
+    }
+
+    internal static PoisonDamageCommandScope BeginPoisonDamageCommand(
+        IEnumerable<Creature> targets,
+        decimal amount,
+        ValueProp props,
+        Creature? dealer,
+        CardModel? cardSource)
+    {
+        var parent = CurrentPoisonDamageCommand.Value;
+        var sequence = CurrentPoisonSequence.Value;
+        var targetList = targets as IReadOnlyList<Creature>;
+        var isPoison = parent is null &&
+                       sequence?.Active == true &&
+                       targetList?.Count == 1 &&
+                       ReferenceEquals(targetList[0], sequence.Owner) &&
+                       amount == sequence.Power.Amount &&
+                       props == (ValueProp.Unblockable | ValueProp.Unpowered) &&
+                       dealer is null &&
+                       cardSource is null;
+        var trigger = isPoison ? sequence!.TakeTrigger() : (false, (ulong?)null);
+        var scope = new PoisonDamageCommandScope(
+            parent,
+            isPoison ? sequence!.Owner : null,
+            isPoison,
+            trigger.Item1,
+            trigger.Item2);
+        CurrentPoisonDamageCommand.Value = scope;
+        return scope;
+    }
+
+    internal static async Task<IEnumerable<DamageResult>> CompletePoisonDamageCommandAsync(
+        Task<IEnumerable<DamageResult>> original,
+        PoisonDamageCommandScope scope)
+    {
+        try
+        {
+            var results = (await original).ToList();
+            if (scope.IsPoison && scope.PoisonOwner is not null)
+            {
+                Safely(nameof(CompletePoisonDamageCommandAsync), () =>
+                    RecordPoisonDamageResults(scope, results));
+            }
+            return results;
+        }
+        finally
+        {
+            if (scope.PoisonCycleResetDeferred && scope.PoisonOwner is not null)
+            {
+                Safely(nameof(CompletePoisonDamageCommandAsync), () =>
+                    PoisonTracker.ObservePoisonAmount(scope.PoisonOwner, 0, 0, null));
+            }
+
+            DetachPoisonDamageCommand(scope);
+        }
+    }
+
+    internal static void DetachPoisonDamageCommand(PoisonDamageCommandScope scope)
+    {
+        if (ReferenceEquals(CurrentPoisonDamageCommand.Value, scope))
+        {
+            CurrentPoisonDamageCommand.Value = scope.Parent;
+        }
     }
 
     public static void OnCardPlayed(CardPlay cardPlay)
@@ -433,6 +620,9 @@ public static class RunStatsRuntime
             DetachPlayerEvents();
             CombatTracker.ResetForRun();
             ContributorLedger.Clear();
+            PoisonTracker.ResetCombat();
+            CurrentPoisonSequence.Value = null;
+            CurrentPoisonDamageCommand.Value = null;
             MaxHpGainScopes.Clear();
             State.Clear();
             _activeRunState = null;
@@ -449,6 +639,9 @@ public static class RunStatsRuntime
             DetachPlayerEvents();
             CombatTracker.ResetForRun();
             ContributorLedger.Clear();
+            PoisonTracker.ResetCombat();
+            CurrentPoisonSequence.Value = null;
+            CurrentPoisonDamageCommand.Value = null;
             MaxHpGainScopes.Clear();
             State.Clear();
             _activeRunState = null;
@@ -516,6 +709,70 @@ public static class RunStatsRuntime
         });
 
     private static Player? ResolvePlayer(Creature? creature) => creature?.Player ?? creature?.PetOwner;
+
+    private static void OnCombatEnded(CombatRoom room) => Safely(nameof(OnCombatEnded), () =>
+    {
+        PoisonTracker.ResetCombat();
+        CombatTracker.ResetForRun();
+        ContributorLedger.Clear();
+        CurrentPoisonSequence.Value = null;
+        CurrentPoisonDamageCommand.Value = null;
+    });
+
+    private static void RecordPoisonDamageResults(
+        PoisonDamageCommandScope scope,
+        IReadOnlyList<DamageResult> results)
+    {
+        var owner = scope.PoisonOwner!;
+        long actualDamage = 0;
+        foreach (var result in results)
+        {
+            actualDamage = checked(actualDamage + ActualDelta.ResolvedDamage(result.UnblockedDamage));
+        }
+
+        if (!PoisonTracker.RecordPoisonTrigger(
+                owner,
+                actualDamage,
+                scope.IsExtraTrigger,
+                scope.SponsorNetId,
+                out _))
+        {
+            return;
+        }
+
+        var roomKind = owner.CombatState?.RunState.CurrentRoom?.RoomType switch
+        {
+            RoomType.Elite => CombatRoomKind.Elite,
+            RoomType.Boss => CombatRoomKind.Boss,
+            _ => CombatRoomKind.Normal
+        };
+        foreach (var result in results.Where(result => result.WasTargetKilled && result.Receiver.IsDead))
+        {
+            PoisonTracker.RecordPoisonKill(
+                owner,
+                result.Receiver,
+                roomKind,
+                BuildPoisonKillEntropy(owner, result.Receiver));
+        }
+    }
+
+    private static ulong BuildPoisonKillEntropy(Creature poisonedEnemy, Creature killedTarget)
+    {
+        var hash = 14695981039346656037UL;
+        var seed = State.CaptureSnapshot().Identity?.Seed ?? string.Empty;
+        foreach (var character in seed)
+        {
+            hash ^= character;
+            hash *= 1099511628211UL;
+        }
+
+        hash ^= poisonedEnemy.CombatId ?? uint.MaxValue;
+        hash *= 1099511628211UL;
+        hash ^= killedTarget.CombatId ?? uint.MaxValue;
+        hash *= 1099511628211UL;
+        hash ^= (ulong)(uint)(poisonedEnemy.CombatState?.RoundNumber ?? 0);
+        return hash;
+    }
 
     private static void OnVanillaSaved() =>
         Safely(nameof(OnVanillaSaved), () => _persistence?.ConfirmVanillaSave());
@@ -819,6 +1076,8 @@ public static class RunStatsRuntime
 
     private static bool IsInsideMaxHpGain(Creature creature) =>
         MaxHpGainScopes.TryGetValue(creature, out var depth) && depth > 0;
+
+    private static bool IsRunActive() => State.CaptureSnapshot().Lifecycle == RunLifecycle.Active;
 
     private static void DetachCreatureEvents()
     {
