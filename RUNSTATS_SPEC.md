@@ -6,9 +6,9 @@
 - **Purpose:** Track meaningful per-player statistics for the complete active run in single-player and co-op, expose them through a native-feeling top-bar UI, and preserve them through save/quit/continue.
 - **Target:** Installed Steam public/default branch, app 2868840, Steam build ID `23811903`; STS2 `v0.107.1`, commit `59260271`, release date 2026-06-18, assembly hash `-1555940892`.
 - **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK 9.0.317 and runtime 9.0.19 are installed system-wide.
-- **Current stage:** The verified v0.1.0 package remains public as Workshop item `3797791393`. The v0.2.0 `PoisonFix` implementation and local single-player/multiplayer playtests are complete; the release is being prepared for the same Workshop item and has not been uploaded.
+- **Current stage:** The verified v0.2.0 package is public as Workshop item `3797791393`. It includes the completed `PoisonFix` work and the enemy-damage-only Block Lost correction.
 - **Completed stages:** Stage 0 Research and Feasibility; Stage 1 Project Scaffold; Stage 2 Run and Player Model; Stage 3 Core Combat Tracking; Stage 4 Assisted Statistics; Stage 5 Cards, Economy, and Items; Stage 6 Multiplayer Hardening; Stage 7 UI; Stage 8 Save/Load and Edge Cases; Stage 9 Final Local Playtest.
-- **Pending v0.2.0 work:** Workshop upload remains a separately gated external action. Live two-peer rejoin reconciliation remains an explicitly documented limitation.
+- **Pending v0.2.0 work:** None. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
 - **Overall feasibility:** **PARTIAL.** The mod and ordinary statistics are feasible. Assisted statistics can be exact for supported, uniquely attributable cases, but exact individual attribution is unavailable when multiple players' contributions merge into one non-instanced debuff. The implementation must omit ambiguous credit rather than report a fabricated split.
 
 ## Scope and approved requirements
@@ -335,6 +335,8 @@ Keep pure models/calculation/persistence tests independent of STS2 where possibl
 - **Phase 6:** Fixed lethal-poison damage/kill attribution ordering, added one-to-four-contributor regressions, redeployed Release, and passed the remaining single-player and multiplayer playtests. Multi-owner Accelerant ordering remains manually untested; deterministic automated coverage passes.
 - **Phase 7:** Synchronized version `0.2.0`, updated Workshop metadata and operational documentation, preserved the published v0.1.0 rollback package, and prepared a verified three-file upload package for existing item `3797791393`. No Workshop upload was performed.
 - **Phase 7 package hashes:** `RunStats.dll` `5C6D8FB363E2E38D67B392500AFCBDEE324D69B5C5975C6BCBF9A26A037D44C0`; `runstats.pck` `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D`; `mod_manifest.json` `F4D3A9D3C0F06DAE6DA8CC6B9223763AE0B0BAEBD2BF50D0EB75D67CD36EE7C9`.
+- **Phase 8:** Changed Block Lost to use enemy-sourced `DamageResult.BlockedDamage`, excluding turn clearing and non-enemy reductions. Debug and Release builds passed with 0 warnings/errors, and all 84/84 tests passed in both configurations. The corrected change note covering both v0.2.0 features was pushed before publication.
+- **Published package:** On 2026-09-09, Mega Crit's uploader updated the existing public item `3797791393` under `LordWildling`; no duplicate item was created. Steam's public API returned success, public visibility, file size 158,085 bytes, and the updated poison and Block Lost description. The public change-notes page contained both release-note entries. Published hashes are `RunStats.dll` `E47DE7491555156FE952739E89006C82E75733F8357962C649C2D61852172CB8`, `runstats.pck` `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D`, and `mod_manifest.json` `83A482429AF9F103D674B8FACF6DB92C7271437C0F061EA163A4136FDA5BF974`.
 
 ## Performance and error handling
 
@@ -461,4 +463,4 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 
 ## Next stage
 
-Preserve `workshop\RunStats\mod_id.txt` for all future updates. Rebuild and repackage Release artifacts, update `changeNote`, and run Mega Crit's uploader against the same workspace so updates target Workshop item `3797791393` rather than creating a duplicate.
+Version 0.2.0 is complete and public. For future updates, preserve `workshop\RunStats\mod_id.txt`, rebuild and repackage Release artifacts, update `changeNote`, and run Mega Crit's uploader against the same workspace so updates target Workshop item `3797791393` rather than creating a duplicate.

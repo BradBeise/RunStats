@@ -526,4 +526,5 @@ These scenarios become executable unit/integration tests after the open decision
 - System-wide build prerequisites: installed and verified with user approval on 2026-09-08.
 - Phase 6 approval and acceptance: granted on 2026-09-08 after the completed single-player and multiplayer playtests.
 - Phase 7, final commit, and pull-request creation: approved on 2026-09-08.
-- Phase 7 Workshop-readiness: complete on 2026-09-08; actual Workshop upload not performed.
+- Phase 7 Workshop-readiness: complete on 2026-09-08.
+- Version 0.2.0 publication: completed on 2026-09-09 to existing public Workshop item `3797791393`, together with the enemy-damage-only Block Lost correction and a change note covering both features.

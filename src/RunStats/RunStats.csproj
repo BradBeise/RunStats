@@ -11,7 +11,7 @@
     <Deterministic>true</Deterministic>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
-    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64</Sts2DataDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">D:\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64</Sts2DataDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">

@@ -2,22 +2,22 @@
 
 ## Canonical locations
 
-- Source repository: `C:\Users\Mike Major\Desktop\RunStats`
-- Historical v0.1.0 local Debug backup (previous machine): `C:\Users\Brad Beise\Documents\Repos\RunStatsLocalTestModFolder\RunStats`
-- Game-local development destination: `D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\RunStats`
-- Workshop upload workspace: `C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats`
-- Subscribed production copy: `D:\SteamLibrary\steamapps\workshop\content\2868840\3797791393`
-- Mega Crit uploader: `C:\Users\Mike Major\Desktop\RunStats\tools\mod-uploader-v0.2.0`
+- Source repository: `C:\Users\Brad Beise\Documents\Repos\RunStats`
+- Historical v0.1.0 local Debug backup: `C:\Users\Brad Beise\Documents\Repos\RunStatsLocalTestModFolder`
+- Game-local development destination: `D:\Steam\steamapps\common\Slay the Spire 2\mods\RunStats`
+- Workshop upload workspace: `C:\Users\Brad Beise\Documents\Repos\RunStats\workshop\RunStats`
+- Subscribed production copy: `D:\Steam\steamapps\workshop\content\2868840\3797791393`
+- Mega Crit uploader: `C:\Users\Brad Beise\Documents\Repos\RunStats\tools\mod-uploader-v0.2.0`
 - Workshop item: `https://steamcommunity.com/sharedfiles/filedetails/?id=3797791393`
-- Current Steam profile settings root: `C:\Users\Mike Major\AppData\Roaming\SlayTheSpire2\steam\76561198122724722`
+- Current Steam profile settings root: `C:\Users\Brad Beise\AppData\Roaming\SlayTheSpire2\steam\76561198407892354`
 
 Never delete `workshop\RunStats\mod_id.txt`. It binds future uploads to Workshop item `3797791393`; without it, the uploader creates a different item.
 
-## Current v0.1.0 baselines
+## v0.1.0 rollback baseline
 
-These hashes are the rollback baseline for the currently subscribed, disabled Workshop release. Do not replace this table with v0.2.0 hashes until the new Workshop package has been separately approved and published.
+These hashes preserve the previously published v0.1.0 release for rollback.
 
-The subscribed Workshop copy contains exactly:
+The preserved v0.1.0 package contains exactly:
 
 | File | SHA-256 |
 | --- | --- |
@@ -46,7 +46,7 @@ The current machine has the Workshop item installed but disabled in `settings.sa
 - The dormant custom snapshot protocol constant is 2 because the fixed statistic/diagnostic wire layout changed. Release builds continue to exclude custom RunStats network message types.
 - Poison contribution weights, exact fractional carries, per-cycle kill comparisons, and Accelerant sponsor order are combat-only. They are intentionally absent from sidecars and reset at combat end. Only finalized run totals persist.
 - Block Lost now records only Block absorbed by enemy damage. End-of-turn clearing and other non-enemy Block reductions are excluded; existing saved totals are preserved rather than reconstructed.
-- If rollback to v0.1.0 is required, close the game, remove the game-local v0.2.0 directory, and re-enable the untouched Workshop copy. A schema-2 sidecar is not readable by v0.1.0; preserve it for diagnosis or archive it inside the RunStats-owned data directory rather than editing vanilla saves.
+- If rollback to v0.1.0 is required, close the game and use the preserved `workshop\RunStats\rollback\v0.1.0` package through a separately approved release or local-test workflow. A schema-2 sidecar is not readable by v0.1.0; preserve it for diagnosis or archive it inside the RunStats-owned data directory rather than editing vanilla saves.
 
 ### Phase 5 local Release candidate
 
@@ -60,19 +60,19 @@ Installed 2026-09-08 into `D:\SteamLibrary\steamapps\common\Slay the Spire 2\mod
 
 All hashes match workspace Release sources. The Workshop directory remains Steam-owned and untouched. The candidate is a Release-configuration build but intentionally retains the 0.1.0 manifest/assembly version until the coordinated Phase 7 version update.
 
-### v0.2.0 Workshop-ready package
+### Published v0.2.0 Workshop package
 
-Prepared 2026-09-08 in `workshop\RunStats\content` after the approved single-player and multiplayer poison playtests. This is an upload-ready package for existing item `3797791393`; it has not been uploaded.
+Published 2026-09-09 from `workshop\RunStats\content` to existing public item `3797791393` after the approved poison playtests and Block Lost correction. The existing item ID was retained; no duplicate was created.
 
 | File | SHA-256 |
 | --- | --- |
-| `mod_manifest.json` | `F4D3A9D3C0F06DAE6DA8CC6B9223763AE0B0BAEBD2BF50D0EB75D67CD36EE7C9` |
-| `RunStats.dll` | `5C6D8FB363E2E38D67B392500AFCBDEE324D69B5C5975C6BCBF9A26A037D44C0` |
+| `mod_manifest.json` | `83A482429AF9F103D674B8FACF6DB92C7271437C0F061EA163A4136FDA5BF974` |
+| `RunStats.dll` | `E47DE7491555156FE952739E89006C82E75733F8357962C649C2D61852172CB8` |
 | `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
 
-The manifest and assembly versions are both 0.2.0, `affects_gameplay` remains `false`, and the Release project excludes all custom RunStats network-message types. The source and packaged hashes match. The uploader workspace retains public visibility and `mod_id.txt` value `3797791393`, but the uploader must not be run without explicit publication approval.
+The manifest and assembly versions are both 0.2.0, `affects_gameplay` remains `false`, and the Release project excludes all custom RunStats network-message types. The uploader workspace retains public visibility and `mod_id.txt` value `3797791393`. Steam reported a successful 158,085-byte update; its public API confirmed the item remains public with both new features in the description, and the public change-notes page contains both entries.
 
-The game-local `mods\RunStats` test installation was updated to this exact final package after confirming STS2 was closed; all three installed hashes match the table. Settings keep this local source enabled and the subscribed Workshop v0.1.0 source disabled.
+The earlier game-local `mods\RunStats` test installation was the pre-publication poison candidate. Immediately after publication, Steam's local subscribed cache still contained v0.1.0; allow Steam to download v0.2.0 before using the subscribed copy, and do not enable it alongside a local test installation.
 
 ## Future change workflow
 

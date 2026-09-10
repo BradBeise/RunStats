@@ -1,6 +1,6 @@
 # RunStats
 
-RunStats is a Slay the Spire 2 mod that tracks complete-run, per-player statistics in single-player and co-op. Version 0.1.0 is publicly available as Steam Workshop item `3797791393`. Version 0.2.0 poison tracking has passed local single-player and multiplayer validation and is packaged for the existing Workshop item; it has not been uploaded yet.
+RunStats is a Slay the Spire 2 mod that tracks complete-run, per-player statistics in single-player and co-op. Version 0.2.0 is publicly available as Steam Workshop item `3797791393`. It adds poison/Accelerant attribution and changes Block Lost to count only Block absorbed by enemy damage, excluding end-of-turn clearing.
 
 ## Compatibility
 
