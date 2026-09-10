@@ -40,11 +40,12 @@ STS2 must never see both the local and Workshop copies of the `runstats` manifes
 
 The current machine has the Workshop item installed but disabled in `settings.save`, and no game-local `mods\RunStats` directory existed at the Phase 4 checkpoint. Phase 5 must reconfirm both facts and that the game is closed before installing the Release candidate.
 
-## v0.2.0 poison upgrade notes
+## v0.2.0 upgrade notes
 
 - Snapshot and sidecar schema 2 add Poison Applied and three poison diagnostics. Schema-1 sidecars are accepted only with the complete legacy field set, then migrated by inserting zero for new fields. Existing totals are preserved; historical poison is not reconstructed.
 - The dormant custom snapshot protocol constant is 2 because the fixed statistic/diagnostic wire layout changed. Release builds continue to exclude custom RunStats network message types.
 - Poison contribution weights, exact fractional carries, per-cycle kill comparisons, and Accelerant sponsor order are combat-only. They are intentionally absent from sidecars and reset at combat end. Only finalized run totals persist.
+- Block Lost now records only Block absorbed by enemy damage. End-of-turn clearing and other non-enemy Block reductions are excluded; existing saved totals are preserved rather than reconstructed.
 - If rollback to v0.1.0 is required, close the game, remove the game-local v0.2.0 directory, and re-enable the untouched Workshop copy. A schema-2 sidecar is not readable by v0.1.0; preserve it for diagnosis or archive it inside the RunStats-owned data directory rather than editing vanilla saves.
 
 ### Phase 5 local Release candidate
