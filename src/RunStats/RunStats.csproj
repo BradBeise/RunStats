@@ -3,15 +3,15 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>RunStats</RootNamespace>
     <AssemblyName>RunStats</AssemblyName>
-    <Version>0.1.0</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Deterministic>true</Deterministic>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
-    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">D:\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64</Sts2DataDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64</Sts2DataDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">

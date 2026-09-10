@@ -5,10 +5,10 @@
 - **Project:** RunStats, a local Slay the Spire 2 statistics mod.
 - **Purpose:** Track meaningful per-player statistics for the complete active run in single-player and co-op, expose them through a native-feeling top-bar UI, and preserve them through save/quit/continue.
 - **Target:** Installed Steam public/default branch, app 2868840, Steam build ID `23811903`; STS2 `v0.107.1`, commit `59260271`, release date 2026-06-18, assembly hash `-1555940892`.
-- **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK is 10.0.103 and .NET 9 runtime 9.0.13 is installed.
-- **Current stage:** Stage 10 (Steam Workshop Release) completed on 2026-09-07. The verified v0.1.0 package is public as Workshop item `3797791393`.
+- **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK 9.0.317 and runtime 9.0.19 are installed system-wide.
+- **Current stage:** The verified v0.1.0 package remains public as Workshop item `3797791393`. The v0.2.0 `PoisonFix` implementation and local single-player/multiplayer playtests are complete; the release is being prepared for the same Workshop item and has not been uploaded.
 - **Completed stages:** Stage 0 Research and Feasibility; Stage 1 Project Scaffold; Stage 2 Run and Player Model; Stage 3 Core Combat Tracking; Stage 4 Assisted Statistics; Stage 5 Cards, Economy, and Items; Stage 6 Multiplayer Hardening; Stage 7 UI; Stage 8 Save/Load and Edge Cases; Stage 9 Final Local Playtest.
-- **Pending stages:** None. Live two-peer rejoin reconciliation remains an explicitly documented limitation.
+- **Pending v0.2.0 work:** Workshop upload remains a separately gated external action. Live two-peer rejoin reconciliation remains an explicitly documented limitation.
 - **Overall feasibility:** **PARTIAL.** The mod and ordinary statistics are feasible. Assisted statistics can be exact for supported, uniquely attributable cases, but exact individual attribution is unavailable when multiple players' contributions merge into one non-instanced debuff. The implementation must omit ambiguous credit rather than report a fabricated split.
 
 ## Scope and approved requirements
@@ -26,6 +26,7 @@
 All totals are per `Player.NetId` unless noted.
 
 - **Damage Dealt:** actual enemy HP removed by player-attributable damage (`DamageResult.UnblockedDamage`), excluding blocked damage and overkill. Multi-hit counts each resolved hit. A pet/summon resolves to its owning player where `Creature.PetOwner` is present. Damage with no reliable player provenance remains uncredited rather than guessed.
+- **Poison Applied:** actual positive change to an enemy's Poison amount after modifiers, credited to the reliable applying player's `NetId`. Unattributable increases receive no player credit but remain in the damage-allocation denominator. Contributor weights are cumulative only for the enemy's current continuous nonzero Poison cycle.
 - **Damage Taken:** actual player HP removed (`DamageResult.UnblockedDamage`), after Block and HP-loss modifiers; excludes blocked damage and overkill.
 - **Healing Done:** actual player HP restored, capped by missing HP; max-HP gain is not healing. Unless later approved otherwise, this means healing received by that player's creature (STS2's ordinary per-player history has recipient attribution, not a general healer source).
 - **Max HP Gained:** actual permanent positive change to the player's maximum HP, separate from healing.
@@ -49,6 +50,16 @@ All totals are per `Player.NetId` unless noted.
 
 Additional actual enemy HP damage caused when Player A's damage-amplifying debuff/status benefits teammate Player B. Player B retains the full actual Damage Dealt. Self-benefit is excluded. For a supported unique contributor, compute a counterfactual through the current damage pipeline with that contributor's qualifying modifier excluded, then compare actual HP loss after Block, integer truncation, HP-loss modifiers, and overkill cap. Never mutate gameplay state during the counterfactual.
 
+Accelerant is a separately approved assisted case for v0.2.0. Each extra Poison trigger is assigned in Accelerant application order, with upgraded Accelerant contributing two adjacent sponsor positions. The sponsor receives Assisted Damage equal to the integer Poison damage credited to other players on that trigger, never their own or the unattributed share.
+
+### Poison damage and kill attribution
+
+Each top-level Poison damage command aggregates its returned resolved HP loss, including redirects, then divides that actual damage by cumulative current-cycle contribution weights. Exact rational remainders carry forward; stable NetId ordering resolves the first indivisible point and carried residuals rotate later extras fairly, including three-player one-extra and two-extra cycles.
+
+The first trigger is standard. Accelerant creates only the later sponsored triggers and does not add Poison Applied. If sponsor state cannot be reconciled with living players' Accelerant amounts, the affected extra trigger grants normal Poison Damage Dealt but no assist.
+
+For a Poison kill, compare credited Poison damage to that enemy within the current nonzero cycle, then Poison Applied in that cycle. A remaining tie selects exactly one player using deterministic run seed, combat/round/enemy information, and tied NetIds without consuming the game RNG. Reaching zero or explicit removal resets contributions, fractions, and kill comparisons.
+
 ### Assisted Damage Prevented
 
 Damage an enemy attack would additionally have dealt before defender-owned mitigation if Player A's damage-reducing debuff/status were absent and teammate Player B is targeted. Self-benefit is excluded. Compare the integer damage entering the Block/HP-loss stages with and without the qualifying teammate-owned reducing modifier. Player B's Block, powers, relics, and own mitigation are not credited to A.
@@ -62,11 +73,11 @@ Damage an enemy attack would additionally have dealt before defender-owned mitig
 
 ## Confirmed environment and mod system
 
-- Game: `D:\Steam\steamapps\common\Slay the Spire 2`.
-- Game assembly: `D:\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll`.
-- Configured local mods path: `D:\Steam\steamapps\common\Slay the Spire 2\mods`.
+- Game: `D:\SteamLibrary\steamapps\common\Slay the Spire 2`.
+- Game assembly: `D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll`.
+- Configured local mods path: `D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods`.
 - The mods directory did not exist during Stage 0. MCP `list_installed_mods` returned `[]`. The game installation top level contained only the normal game directories/binaries and no local mod directory. No game/mod files were created, modified, moved, renamed, disabled, or deleted.
-- The active Steam user-data root is `C:\Users\Brad Beise\AppData\Roaming\SlayTheSpire2\steam\76561198407892354`. It contains separate vanilla profiles, a `modded\profile1` tree, and `mod_data`. Read-only inspection on 2026-09-06 confirmed active modded single-player and multiplayer run saves plus their backups. This directory is save/profile state, not the local mod deployment directory.
+- The active Steam user-data root is `C:\Users\Mike Major\AppData\Roaming\SlayTheSpire2\steam\76561198122724722`. The v0.2.0 work treats this as protected save/profile state, not a deployment directory; existing RunStats sidecars were observed but not opened or changed during Phase 1.
 - Steam Workshop content exists separately under `D:\Steam\steamapps\workshop\content\2868840` and currently contains BaseLib v3.4.5, Minty Spire 2 v1.2.0, and Import Vanilla Saves v0.2.1. The empty MCP local-mod inventory therefore does not mean the overall installation is unmodded.
 - Steam manifest has no beta branch key, so the installed build is on the public/default branch.
 - `ModManager.Initialize` scans `<game executable directory>/mods` recursively for `mod_manifest.json`, then loads the declared DLL and optional PCK. A `[ModInitializer("MethodName")]` entry point is supported; otherwise the loader calls Harmony `PatchAll`.
@@ -134,6 +145,7 @@ Reliability assumes the exact target build above. All peer-local hooks execute a
 - Identify a run with a composite including `RunState.Rng.StringSeed`, game mode, serialized player NetIds, profile ID, and run start time. `RunManager` preserves start time through `SerializableRun.StartTime`; it is private at runtime, so load/start patches must capture it from the `SerializableRun` or generated `RunManager.ToSave` identity. Do not rely on seed alone.
 - Subscribe to `RunManager.RunStarted`; patch or subscribe around `RunManager.SetUpSavedSingleplayer`, `SetUpSavedMultiplayer`, `RunManager.OnEnded`, and `RunManager.CleanUp` as needed. Subscribe to `SaveManager.Saved` so sidecar checkpoints correspond to successful vanilla run saves; also atomically checkpoint after stat mutations with debouncing or at safe action/room boundaries.
 - On load, validate schema/run identity, then merge vanilla-history-backed totals with RunStats-only sidecar fields. On corruption/mismatch, log and fall back safely without touching the vanilla save. Host distributes the authoritative snapshot in multiplayer.
+- v0.2.0 writes snapshot/sidecar schema 2. A complete schema-1 v0.1.0 sidecar migrates by preserving all legacy values and inserting zero for Poison Applied and the three new poison diagnostics. Schema-2 documents missing any current field remain invalid. Combat-only poison weights, fraction carries, kill comparisons, and Accelerant sponsor order are never serialized.
 - On new run, create a new in-memory state. On abandon/death/victory, archive only the matching RunStats sidecar after final state handling. Archives are retained indefinitely as the conservative, non-destructive default.
 
 ## UI architecture
@@ -142,6 +154,7 @@ Reliability assumes the exact target build above. All peer-local hooks execute a
 - Inject one RunStats-owned `STATS` control after `NTopBar._Ready` (Harmony postfix), preferably adjacent to the right-aligned options/pause controls. Guard by a RunStats-owned node name/group to prevent duplicate injection. Remove automatically with the run tree.
 - Implement the statistics view as an `IOverlayScreen` and open it through `NOverlayStack.Instance.Push`. This gives standard backstop, active-screen/focus management, stacking, and map hide/show behavior. Use `NModalContainer` only for true confirmations; it permits only one modal and is not the right primary container.
 - Use Godot containers (`MarginContainer`, `PanelContainer`, `VBoxContainer`, `HBoxContainer`, `ScrollContainer`) and game controls/fonts/themes where accessible. Implement controller focus neighbors and close/back behavior through `ActiveScreenContext`/screen context conventions. Single-player uses one column; multiplayer uses player columns and derived team totals; tabs are optional if vertical layout becomes unwieldy.
+- The v0.2.0 Damage tab includes Poison Applied immediately after Damage Dealt. Damage Dealt already includes each player's attributed Poison HP damage; Poison Applied measures stacks added, not damage.
 - STS2 global UI supports content scale from 1680x1080 through narrow 1680x1260 and wide 2580x1080 bounds. Layout must be container-driven and tested at narrow/default/wide sizes.
 - A PCK is likely required for localization and any `.tscn` scene. Pure programmatic C# UI avoids scene-script registration; if a `.tscn` references mod C# scripts, initialize `ScriptManagerBridge.LookupScriptsInAssembly`.
 
@@ -311,6 +324,17 @@ Keep pure models/calculation/persistence tests independent of STS2 where possibl
 - The user subscribed to the public item and moved the final local Debug test installation outside the game's recursively scanned mod tree to `C:\Users\Brad Beise\Documents\Repos\RunStatsLocalTestModFolder\RunStats`. The original game-local `mods\RunStats` path is absent.
 - The subscribed production directory `D:\Steam\steamapps\workshop\content\2868840\3797791393` contains exactly the three staged Release files. Its DLL SHA-256 is `7283EB1E106E160305EF355D67AC711FE80D7BABF9618C34D1BCE4671C6CF070`; the backed-up Debug DLL SHA-256 is `06D3B1B222CE30BABAE848972B365917DEA573118CCB53F7F27CD72AC90B43B0`.
 - Added `MAINTENANCE.md` as the operational handoff for future versioning, duplicate-free local testing, Release packaging, Workshop updates, verification, and rollback preparation.
+
+## v0.2.0 PoisonFix phased implementation record
+
+- **Phase 1:** Verified installed STS2 v0.107.1 poison/Accelerant implementation, all vanilla poison source categories, exact central mutation/damage APIs, save timing, Steam library location, disabled Workshop state, and Release prerequisites.
+- **Phase 2:** Added the Poison Applied model field, poison diagnostics, per-enemy continuous-cycle contributions, exact fractional allocator, deterministic kill selector, ordered Accelerant sponsorship, assist calculator, and focused tests.
+- **Phase 3:** Added narrow power lifecycle and poison sequence/damage hooks. Final power deltas capture modifiers, top-level returned damage is aggregated once, generic dealer-less damage is suppressed only for that poison command, and nested damage remains on its ordinary path. Combat-only state clears on combat/run boundaries.
+- **Phase 4:** Added Poison Applied to the Damage UI, advanced snapshot/sidecar schema to 2 with strict schema-1 migration, advanced the dormant fixed-layout snapshot protocol constant to 2, and documented behavior, limits, persistence, rollback, and later deployment gates.
+- **Phase 5:** Built and installed the Release candidate locally with the subscribed Workshop copy disabled; verified the three-file installation and completed the initial single-player checklist.
+- **Phase 6:** Fixed lethal-poison damage/kill attribution ordering, added one-to-four-contributor regressions, redeployed Release, and passed the remaining single-player and multiplayer playtests. Multi-owner Accelerant ordering remains manually untested; deterministic automated coverage passes.
+- **Phase 7:** Synchronized version `0.2.0`, updated Workshop metadata and operational documentation, preserved the published v0.1.0 rollback package, and prepared a verified three-file upload package for existing item `3797791393`. No Workshop upload was performed.
+- **Phase 7 package hashes:** `RunStats.dll` `5C6D8FB363E2E38D67B392500AFCBDEE324D69B5C5975C6BCBF9A26A037D44C0`; `runstats.pck` `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D`; `mod_manifest.json` `F4D3A9D3C0F06DAE6DA8CC6B9223763AE0B0BAEBD2BF50D0EB75D67CD36EE7C9`.
 
 ## Performance and error handling
 

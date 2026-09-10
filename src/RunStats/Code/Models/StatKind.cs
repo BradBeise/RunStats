@@ -21,5 +21,6 @@ public enum StatKind
     PotionsObtained = 16,
     PotionsUsed = 17,
     AssistedDamage = 18,
-    AssistedDamagePrevented = 19
+    AssistedDamagePrevented = 19,
+    PoisonApplied = 20
 }

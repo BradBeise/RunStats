@@ -6,5 +6,8 @@ public enum DiagnosticKind
     AmbiguousAssistedDamagePrevented = 1,
     UnsupportedDamageSource = 2,
     UnsupportedHealingSource = 3,
-    DuplicateEventSuppressed = 4
+    DuplicateEventSuppressed = 4,
+    UnattributedPoisonApplication = 5,
+    UnsupportedPoisonDamage = 6,
+    UnsponsoredAccelerantTrigger = 7
 }

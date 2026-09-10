@@ -33,6 +33,7 @@ internal static class PowerContributionPatch
         int previousAmount)
     {
         var currentAmount = await original;
+        RunStatsRuntime.OnPowerAmountChanged(power, applier, previousAmount, currentAmount);
         if (currentAmount > previousAmount)
         {
             RunStatsRuntime.OnPowerContribution(power, applier);
