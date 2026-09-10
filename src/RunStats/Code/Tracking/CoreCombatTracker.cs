@@ -64,12 +64,27 @@ public sealed class CoreCombatTracker
         }
     }
 
-    public void RecordDamageTaken(ulong playerNetId, int unblockedDamage)
+    public void RecordDamageReceived(
+        ulong playerNetId,
+        int unblockedDamage,
+        int blockedDamage,
+        bool sourceIsEnemy)
     {
         var actualDamage = ActualDelta.ResolvedDamage(unblockedDamage);
         if (actualDamage > 0)
         {
             _state.TryApply(StatMutation.Add(playerNetId, StatKind.DamageTaken, actualDamage));
+        }
+
+        if (!sourceIsEnemy)
+        {
+            return;
+        }
+
+        var actualBlockedDamage = ActualDelta.ResolvedDamage(blockedDamage);
+        if (actualBlockedDamage > 0)
+        {
+            _state.TryApply(StatMutation.Add(playerNetId, StatKind.BlockLost, actualBlockedDamage));
         }
     }
 
@@ -79,10 +94,6 @@ public sealed class CoreCombatTracker
         if (delta.Gained > 0)
         {
             _state.TryApply(StatMutation.Add(playerNetId, StatKind.BlockGained, delta.Gained));
-        }
-        else if (delta.Lost > 0)
-        {
-            _state.TryApply(StatMutation.Add(playerNetId, StatKind.BlockLost, delta.Lost));
         }
     }
 

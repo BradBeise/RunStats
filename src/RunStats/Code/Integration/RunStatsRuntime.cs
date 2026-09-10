@@ -520,13 +520,17 @@ public static class RunStatsRuntime
             ProgressTracker.RecordCount(potion.Owner.NetId, StatKind.PotionsUsed));
     }
 
-    public static void OnDamageReceived(Creature target, DamageResult result)
+    public static void OnDamageReceived(Creature target, DamageResult result, Creature? dealer)
     {
         Safely(nameof(OnDamageReceived), () =>
         {
             if (target.Player is not null)
             {
-                CombatTracker.RecordDamageTaken(target.Player.NetId, result.UnblockedDamage);
+                CombatTracker.RecordDamageReceived(
+                    target.Player.NetId,
+                    result.UnblockedDamage,
+                    result.BlockedDamage,
+                    dealer?.IsEnemy == true);
             }
         });
     }

@@ -8,8 +8,8 @@ namespace RunStats.Integration.Patches;
 internal static class AfterDamageReceivedPatch
 {
     [HarmonyPrefix]
-    private static void Prefix(Creature target, DamageResult result)
+    private static void Prefix(Creature target, DamageResult result, Creature? dealer)
     {
-        RunStatsRuntime.OnDamageReceived(target, result);
+        RunStatsRuntime.OnDamageReceived(target, result, dealer);
     }
 }

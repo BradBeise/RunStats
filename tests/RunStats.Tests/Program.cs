@@ -33,7 +33,7 @@ internal static class Program
             ("Resolved damage excludes invalid negative values", ResolvedDamageFailsClosed),
             ("Kill credit is reference-deduplicated", KillCreditIsDeduplicated),
             ("Multi-hit damage accumulates each resolved hit", MultiHitDamageAccumulates),
-            ("Block and fully blocked damage use actual deltas", BlockingUsesActualDeltas),
+            ("Block loss counts only damage blocked from enemies", BlockLossCountsOnlyEnemyDamage),
             ("Overkill is capped and kill credit is unique", OverkillAndKillCreditAreExact),
             ("Indirect damage without provenance is uncredited", IndirectDamageFailsClosed),
             ("Healing is capped and max-HP healing is excluded", HealingAndMaxHpAreSeparated),
@@ -287,13 +287,14 @@ internal static class Program
         Equal(12L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.DamageDealt));
     }
 
-    private static void BlockingUsesActualDeltas()
+    private static void BlockLossCountsOnlyEnemyDamage()
     {
         var state = CreateState(10);
         var tracker = new CoreCombatTracker(state);
         tracker.RecordBlockChanged(10, 0, 10);
-        tracker.RecordBlockChanged(10, 10, 4);
-        tracker.RecordDamageTaken(10, 0);
+        tracker.RecordBlockChanged(10, 10, 0);
+        tracker.RecordDamageReceived(10, 0, 6, sourceIsEnemy: true);
+        tracker.RecordDamageReceived(10, 0, 3, sourceIsEnemy: false);
 
         var player = state.CaptureSnapshot().Players[10];
         Equal(10L, player.GetTotal(StatKind.BlockGained));
@@ -354,7 +355,7 @@ internal static class Program
         var tracker = new CoreCombatTracker(state);
         tracker.RecordDamageGiven(10, true, 7, false, new object(), CombatRoomKind.Normal);
         tracker.RecordDamageGiven(20, true, 3, false, new object(), CombatRoomKind.Normal);
-        tracker.RecordDamageTaken(20, 6);
+        tracker.RecordDamageReceived(20, 6, 0, sourceIsEnemy: true);
 
         var snapshot = state.CaptureSnapshot();
         Equal(7L, snapshot.Players[10].GetTotal(StatKind.DamageDealt));

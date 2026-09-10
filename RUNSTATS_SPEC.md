@@ -31,7 +31,7 @@ All totals are per `Player.NetId` unless noted.
 - **Healing Done:** actual player HP restored, capped by missing HP; max-HP gain is not healing. Unless later approved otherwise, this means healing received by that player's creature (STS2's ordinary per-player history has recipient attribution, not a general healer source).
 - **Max HP Gained:** actual permanent positive change to the player's maximum HP, separate from healing.
 - **Block Gained:** actual positive change in player Block after modifiers and integer truncation.
-- **Block Lost:** actual negative change in player Block from absorption, explicit loss, break, or clear. This definition intentionally includes end-of-turn clearing.
+- **Block Lost:** actual player Block absorbed by enemy damage, measured from `DamageResult.BlockedDamage`. End-of-turn clearing and other non-enemy Block reductions are excluded.
 - **Enemies Killed:** enemy deaths caused by reliably player-attributed lethal damage, counted once. Forced/environmental/deferred deaths without a reliable player source are uncredited.
 - **Elite Enemies Killed / Bosses Killed:** credited enemy kills in a `CombatRoom` whose `Encounter.RoomType` is `RoomType.Elite` / `RoomType.Boss`. This is kill credit, not merely room completion.
 - **Cards Played:** every completed `CardPlay`, including autoplay and each Replay execution. `CardPlay.PlayIndex` distinguishes repeated executions. Most Played Card uses these same counts.
@@ -96,7 +96,7 @@ Reliability assumes the exact target build above. All peer-local hooks execute a
 | Healing Done | `CreatureCmd.Heal(Creature, decimal, bool)`; `Creature.CurrentHpChanged`; vanilla `HpHealed` | Harmony prefix/postfix captures actual HP delta, excluding max-HP path; validate against saved history | Recipient player's NetId | High for healing received; healer-source attribution is not generally available |
 | Max HP Gained | `CreatureCmd.GainMaxHp(Creature, decimal)`; `Creature.MaxHpChanged`; vanilla `MaxHpGained` | Capture actual positive max-HP delta; validate against saved history | Receiver player's NetId | High |
 | Block Gained | `Creature.BlockChanged(old,new)`; native `Hook.AfterBlockGained` | Subscribe for positive actual delta; use AfterBlockGained for source metadata | Creature's player NetId | High |
-| Block Lost | `Creature.BlockChanged(old,new)`; `CreatureCmd.LoseBlock`; `Hook.AfterBlockBroken/AfterBlockCleared` | Subscribe for all negative actual deltas; no double count in auxiliary hooks | Creature's player NetId | High |
+| Block Lost | `Hook.AfterDamageReceived(... Creature target, DamageResult result, ... Creature? dealer, ...)` | Add `result.BlockedDamage` only when the receiver is a player and the dealer is an enemy | Receiver `target.Player.NetId` | High for enemy-sourced damage |
 | Enemies Killed | `Hook.AfterDamageGiven` + `DamageResult.WasTargetKilled`; `Hook.AfterDeath` | Count first lethal result per creature when dealer resolves to player; AfterDeath is a validation/cleanup signal | Killer NetId from dealer/pet owner | High for damage kills; partial for source-less forced/deferred death |
 | Elite Kills | Above + `CombatRoom.Encounter.RoomType == RoomType.Elite` | Classify credited kill by current combat encounter | Same killer NetId | High under defined kill-credit rule |
 | Boss Kills | Above + `CombatRoom.Encounter.RoomType == RoomType.Boss` | Classify credited kill by current combat encounter | Same killer NetId | High under defined kill-credit rule |
@@ -367,7 +367,7 @@ Keep pure models/calculation/persistence tests independent of STS2 where possibl
 | Healing Done | `Creature.CurrentHpChanged` | Near-full heal 48→50; max-HP heal 50→55 inside scope | 2 | 2 | Pure scenario passed; event subscription awaits live run |
 | Max HP Gained | `Creature.MaxHpChanged` + `CreatureCmd.GainMaxHp` scope | Maximum HP 50→55 | 5 | 5 | Pure scenario passed; Harmony patch bound at load |
 | Block Gained | `Creature.BlockChanged` | Block 0→10 | 10 | 10 | Pure scenario passed; event subscription awaits live run |
-| Block Lost | `Creature.BlockChanged` | Block 10→4 | 6 | 6 | Pure scenario passed; event subscription awaits live run |
+| Block Lost | `Hook.AfterDamageReceived` | Enemy damage absorbs 6 Block; turn clearing removes the remainder | 6 | 6 | Pure scenario verifies enemy absorption counts and clearing does not |
 | Enemies Killed | `Hook.AfterDamageGiven` + lethal `DamageResult` | Same enemy receives duplicate lethal observations | 1 | 1 | Pure scenario passed; runtime patch bound at load |
 | Elite Enemies Killed | Damage-given hook + `RoomType.Elite` | One uniquely credited elite kill | 1 | 1 | Pure scenario passed; runtime patch bound at load |
 | Bosses Killed | Damage-given hook + `RoomType.Boss` | One uniquely credited boss kill | 1 | 1 | Pure scenario passed; runtime patch bound at load |
@@ -451,7 +451,7 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 - Existing-mod/game/process safety rules and first-deployment approval gate.
 - Stage 1 project scaffold, local installation, and menu-only load verification.
 - Stage 2 run/player model and local deployment.
-- Stage 3 core combat tracking under the documented conservative rules: recipient-based Healing Done, all actual Block decrease including clears, and only reliably player-attributed lethal-damage kills.
+- Stage 3 core combat tracking under the documented conservative rules: recipient-based Healing Done, Block Lost from enemy damage absorption only, and only reliably player-attributed lethal-damage kills.
 - Stage 4 conservative assisted policy and implementation: exact credit only for supported, uniquely owned Vulnerable/Weak cases; no self credit or ambiguous split.
 - Stage 5 card/economy/item rules, including all completed autoplay/Replay card executions, actual spend/gain deltas, starting/failed-item exclusions, and ordinal card-ID tie-breaking for Most Played Card.
 - Stage 6's historical host-authoritative prototype plus the final client-optional replacement: peer-local NetId ownership, no custom network messages, and `affects_gameplay: false`.
