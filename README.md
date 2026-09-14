@@ -1,6 +1,6 @@
 # RunStats
 
-RunStats is a Slay the Spire 2 mod that tracks complete-run, per-player statistics in single-player and co-op. Version 0.3.0 is prepared for Steam Workshop item `3797791393`; version 0.2.0 remains public until the update is uploaded. The new release adds Doom application, proportional Doom-kill damage, and Doom kill credit.
+RunStats is a Slay the Spire 2 mod that tracks complete-run, per-player statistics in single-player and co-op. Version 0.3.0 is public as Steam Workshop item `3797791393`. The release adds Doom application, proportional Doom-kill damage, and Doom kill credit.
 
 ## Compatibility
 

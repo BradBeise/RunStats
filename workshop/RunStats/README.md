@@ -10,4 +10,4 @@ This directory is the Steam Workshop upload workspace for public RunStats item `
 
 The first upload was reviewed privately before the item was updated to `"visibility": "public"`. Future uploads use the same `mod_id.txt` and update this item.
 
-The `content` directory is the staged RunStats v0.3.0 package for the existing public item. It contains only the DLL, PCK, and manifest. The Workshop item remains on v0.2.0 until the staged package is uploaded and verified.
+The `content` directory is the exact RunStats v0.3.0 package uploaded to existing public item `3797791393` on 2026-09-14. It contains only the DLL, PCK, and manifest. The local subscribed Steam cache may lag behind the public update.

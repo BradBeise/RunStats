@@ -6,9 +6,9 @@
 - **Purpose:** Track meaningful per-player statistics for the complete active run in single-player and co-op, expose them through a native-feeling top-bar UI, and preserve them through save/quit/continue.
 - **Target:** Installed Steam public/default branch, app 2868840, Steam build ID `23811903`; STS2 `v0.107.1`, commit `59260271`, release date 2026-06-18, assembly hash `-1555940892`.
 - **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK 9.0.317 and runtime 9.0.19 are installed system-wide.
-- **Current stage:** The verified v0.2.0 package is public as Workshop item `3797791393`. A v0.3.0 Doom-tracking package is staged for the same item; local Doom playtesting passed and the game-local test copy has been removed.
+- **Current stage:** The verified v0.3.0 Doom-tracking package is public as Workshop item `3797791393`. Local Doom playtesting passed, and the game-local test copy was removed before publication.
 - **Completed stages:** Stage 0 Research and Feasibility; Stage 1 Project Scaffold; Stage 2 Run and Player Model; Stage 3 Core Combat Tracking; Stage 4 Assisted Statistics; Stage 5 Cards, Economy, and Items; Stage 6 Multiplayer Hardening; Stage 7 UI; Stage 8 Save/Load and Edge Cases; Stage 9 Final Local Playtest.
-- **Pending release work:** Commit and push the staged v0.3.0 package, then upload it to the existing Workshop item and verify the public update. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
+- **Pending release work:** None. Steam's local subscribed cache still showed v0.2.0 immediately after publication; wait for its v0.3.0 download before re-enabling it. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
 - **Overall feasibility:** **PARTIAL.** The mod and ordinary statistics are feasible. Assisted statistics can be exact for supported, uniquely attributable cases, but exact individual attribution is unavailable when multiple players' contributions merge into one non-instanced debuff. The implementation must omit ambiguous credit rather than report a fabricated split.
 
 ## Scope and approved requirements
@@ -468,4 +468,4 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 
 ## Next stage
 
-Version 0.2.0 is complete and public. For future updates, preserve `workshop\RunStats\mod_id.txt`, rebuild and repackage Release artifacts, update `changeNote`, and run Mega Crit's uploader against the same workspace so updates target Workshop item `3797791393` rather than creating a duplicate.
+Version 0.3.0 is complete and public. For future updates, preserve `workshop\RunStats\mod_id.txt`, rebuild and repackage Release artifacts, update `changeNote`, and run Mega Crit's uploader against the same workspace so updates target Workshop item `3797791393` rather than creating a duplicate.

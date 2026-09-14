@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — Doom tracking (release candidate)
+## 0.3.0 — 2026-09-14
 
 - Add Doom Applied immediately below Poison Applied. Positive Doom from cards, relics, potions, and other sources is credited to the applying player. Doom copied by Misery is credited to the player who played Misery.
 - When Doom kills an enemy, split the HP it actually removes among contributors in proportion to Doom applied. Unattributed Doom remains in the denominator. The largest Doom contributor receives the kill; ties use damage dealt to that enemy, then a deterministic selection.

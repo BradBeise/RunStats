@@ -74,15 +74,15 @@ The manifest and assembly versions are both 0.2.0, `affects_gameplay` remains `f
 
 The earlier game-local `mods\RunStats` test installation was the pre-publication poison candidate. Immediately after publication, Steam's local subscribed cache still contained v0.1.0; allow Steam to download v0.2.0 before using the subscribed copy, and do not enable it alongside a local test installation.
 
-## v0.3.0 Doom release candidate
+## Published v0.3.0 Doom update
 
 - Doom Applied appears immediately below Poison Applied. Misery's copied Doom is credited to its player. A Doom kill adds only the HP actually removed to Damage Dealt, divided by applied-Doom shares; the largest Doom contributor gets the kill, with damage to that enemy and then deterministic selection breaking ties.
 - Snapshot and sidecar schema 3 adds Doom Applied. Complete schema-1 and schema-2 sidecars migrate with Doom Applied set to zero and all earlier totals preserved. The dormant fixed-layout snapshot protocol is 3; Release still excludes custom network-message types.
-- The user confirmed the local Doom playtest passed. The game-local `mods\RunStats` test folder was removed after that confirmation, with the game closed. The subscribed Workshop copy remains disabled during release preparation.
+- The user confirmed the local Doom playtest passed. The game-local `mods\RunStats` test folder was removed after that confirmation, with the game closed.
 - `workshop\RunStats\rollback\v0.2.0` preserves the published three-file v0.2.0 package, including its hashes. Keep `mod_id.txt` unchanged so the v0.3.0 upload updates item `3797791393`.
-- Build and package the v0.3.0 Release artifacts, verify the content directory contains only the DLL, PCK, and manifest, then upload and verify the existing Workshop item before re-enabling its subscribed copy.
+- Mega Crit's uploader successfully updated the existing public Workshop item `3797791393` on 2026-09-14. Steam's public item-details API reported success, public visibility, file size 168,836 bytes, updated time 20:04:02 UTC, and a description containing v0.3.0 and Doom Applied. The public change-notes page also shows the v0.3.0 Doom entry. The subscribed cache still held v0.2.0 immediately afterward; wait for Steam to download the updated copy before re-enabling it.
 
-The staged v0.3.0 package contains exactly these three files. The Release build has 0 warnings/errors and the executable suite passes 88/88. The assembly version is `0.3.0.0`, the manifest version is `0.3.0`, the existing item ID is `3797791393`, and the thumbnail is 735,516 bytes.
+The published v0.3.0 package contains exactly these three files. The Release build has 0 warnings/errors and the executable suite passes 88/88. The assembly version is `0.3.0.0`, the manifest version is `0.3.0`, the existing item ID is `3797791393`, and the thumbnail is 735,516 bytes.
 
 | File | SHA-256 |
 | --- | --- |
