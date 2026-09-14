@@ -6,9 +6,9 @@
 - **Purpose:** Track meaningful per-player statistics for the complete active run in single-player and co-op, expose them through a native-feeling top-bar UI, and preserve them through save/quit/continue.
 - **Target:** Installed Steam public/default branch, app 2868840, Steam build ID `23811903`; STS2 `v0.107.1`, commit `59260271`, release date 2026-06-18, assembly hash `-1555940892`.
 - **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK 9.0.317 and runtime 9.0.19 are installed system-wide.
-- **Current stage:** The verified v0.2.0 package is public as Workshop item `3797791393`. It includes the completed `PoisonFix` work and the enemy-damage-only Block Lost correction.
+- **Current stage:** The verified v0.2.0 package is public as Workshop item `3797791393`. A v0.3.0 Doom-tracking package is staged for the same item; local Doom playtesting passed and the game-local test copy has been removed.
 - **Completed stages:** Stage 0 Research and Feasibility; Stage 1 Project Scaffold; Stage 2 Run and Player Model; Stage 3 Core Combat Tracking; Stage 4 Assisted Statistics; Stage 5 Cards, Economy, and Items; Stage 6 Multiplayer Hardening; Stage 7 UI; Stage 8 Save/Load and Edge Cases; Stage 9 Final Local Playtest.
-- **Pending v0.2.0 work:** None. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
+- **Pending release work:** Commit and push the staged v0.3.0 package, then upload it to the existing Workshop item and verify the public update. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
 - **Overall feasibility:** **PARTIAL.** The mod and ordinary statistics are feasible. Assisted statistics can be exact for supported, uniquely attributable cases, but exact individual attribution is unavailable when multiple players' contributions merge into one non-instanced debuff. The implementation must omit ambiguous credit rather than report a fabricated split.
 
 ## Scope and approved requirements
@@ -27,6 +27,7 @@ All totals are per `Player.NetId` unless noted.
 
 - **Damage Dealt:** actual enemy HP removed by player-attributable damage (`DamageResult.UnblockedDamage`), excluding blocked damage and overkill. Multi-hit counts each resolved hit. A pet/summon resolves to its owning player where `Creature.PetOwner` is present. Damage with no reliable player provenance remains uncredited rather than guessed.
 - **Poison Applied:** actual positive change to an enemy's Poison amount after modifiers, credited to the reliable applying player's `NetId`. Unattributable increases receive no player credit but remain in the damage-allocation denominator. Contributor weights are cumulative only for the enemy's current continuous nonzero Poison cycle.
+- **Doom Applied:** actual positive change to an enemy's Doom amount after modifiers, credited to the applying player's `NetId` across cards, relics, potions, and other sources. When Misery copies Doom, the copied amount is credited to Misery's player, even though the game passes the original applier.
 - **Damage Taken:** actual player HP removed (`DamageResult.UnblockedDamage`), after Block and HP-loss modifiers; excludes blocked damage and overkill.
 - **Healing Done:** actual player HP restored, capped by missing HP; max-HP gain is not healing. Unless later approved otherwise, this means healing received by that player's creature (STS2's ordinary per-player history has recipient attribution, not a general healer source).
 - **Max HP Gained:** actual permanent positive change to the player's maximum HP, separate from healing.
@@ -59,6 +60,10 @@ Each top-level Poison damage command aggregates its returned resolved HP loss, i
 The first trigger is standard. Accelerant creates only the later sponsored triggers and does not add Poison Applied. If sponsor state cannot be reconciled with living players' Accelerant amounts, the affected extra trigger grants normal Poison Damage Dealt but no assist.
 
 For a Poison kill, compare credited Poison damage to that enemy within the current nonzero cycle, then Poison Applied in that cycle. A remaining tie selects exactly one player using deterministic run seed, combat/round/enemy information, and tied NetIds without consuming the game RNG. Reaching zero or explicit removal resets contributions, fractions, and kill comparisons.
+
+### Doom damage and kill attribution
+
+Doom Applied appears immediately below Poison Applied. Doom adds to Damage Dealt only when it kills the enemy. The HP Doom actually removes is divided by each player's share of Doom applied to that enemy in the current Doom cycle. For example, 70 and 30 Doom applied to an enemy with 10 HP remaining grants 7 and 3 Damage Dealt. Unattributed Doom remains in the denominator. The largest Doom contributor receives the kill; a Doom tie is broken by actual damage to that enemy, then by deterministic run/enemy tie selection. A prevented Doom death grants neither Doom damage nor kill credit. Removing Doom without a kill ends its contribution cycle.
 
 ### Assisted Damage Prevented
 

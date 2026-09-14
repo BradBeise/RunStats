@@ -12,8 +12,9 @@ namespace RunStats.Persistence;
 
 public static class SidecarSnapshotCodec
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     public const int PreviousSchemaVersion = 1;
+    public const int PoisonSchemaVersion = 2;
     public const string ModId = "com.bradbeise.runstats";
     public const int MaxJsonCharacters = 1_048_576;
 
@@ -85,7 +86,7 @@ public static class SidecarSnapshotCodec
 
         if (document is null || document.Identity is null || document.Players is null ||
             document.Diagnostics is null || document.AssistedOwnership is null ||
-            document.SchemaVersion is not (PreviousSchemaVersion or CurrentSchemaVersion) ||
+            document.SchemaVersion is not (PreviousSchemaVersion or PoisonSchemaVersion or CurrentSchemaVersion) ||
             document.SnapshotSchemaVersion != document.SchemaVersion ||
             !string.Equals(document.ModId, ModId, StringComparison.Ordinal))
         {
@@ -134,6 +135,7 @@ public static class SidecarSnapshotCodec
                     if (!Enum.TryParse(value.Kind, false, out StatKind kind) ||
                         !Enum.IsDefined(kind) ||
                         (document.SchemaVersion == PreviousSchemaVersion && kind == StatKind.PoisonApplied) ||
+                        (document.SchemaVersion < CurrentSchemaVersion && kind == StatKind.DoomApplied) ||
                         !totals.TryAdd(kind, value.Value))
                     {
                         return SidecarLoadResult.InvalidSnapshot;
@@ -143,6 +145,10 @@ public static class SidecarSnapshotCodec
                 if (document.SchemaVersion == PreviousSchemaVersion)
                 {
                     totals.Add(StatKind.PoisonApplied, 0);
+                }
+                if (document.SchemaVersion < CurrentSchemaVersion)
+                {
+                    totals.Add(StatKind.DoomApplied, 0);
                 }
 
                 var cards = new Dictionary<string, long>(StringComparer.Ordinal);

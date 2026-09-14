@@ -102,7 +102,11 @@ internal static class Program
             ("Reliable poison source categories feed one central tracker", ReliablePoisonSourcesUseCentralTracker),
             ("Poison trigger integration updates damage assist and kills", PoisonTriggerIntegrationUpdatesStats),
             ("Lethal poison allocates actual HP loss before cycle reset", LethalPoisonAllocatesBeforeReset),
-            ("Unattributed runtime poison stays uncredited", UnattributedRuntimePoisonStaysUncredited)
+            ("Unattributed runtime poison stays uncredited", UnattributedRuntimePoisonStaysUncredited),
+            ("Doom kill splits actual HP loss and credits largest applier", DoomKillSplitsDamageAndKill),
+            ("Doom ties use damage then deterministic selection", DoomKillTieBreaks),
+            ("Unattributed Doom stays in the HP-loss denominator", UnattributedDoomDoesNotInflateDamage),
+            ("Schema-two sidecars migrate Doom to zero", SidecarSchemaTwoMigratesDoom)
         };
 
         var failures = 0;
@@ -795,7 +799,7 @@ internal static class Program
         True(StatsViewModel.TryCreate(state.CaptureSnapshot(), out var viewModel));
         Equal(1, viewModel!.ColumnHeaders.Count);
         Equal("PLAYER 1", viewModel.ColumnHeaders[0]);
-        Equal(22, viewModel.Rows.Count);
+        Equal(23, viewModel.Rows.Count);
         Equal("8", UiRow(viewModel, "Damage Dealt").PlayerValues[0]);
         Equal("CARD.BASH", UiRow(viewModel, "Most Played Card").PlayerValues[0]);
         Equal<string?>(null, UiRow(viewModel, "Damage Dealt").TeamValue);
@@ -813,6 +817,8 @@ internal static class Program
         state.TryApply(StatMutation.Add(20, StatKind.AssistedDamage, 5));
         state.TryApply(StatMutation.Add(10, StatKind.PoisonApplied, 6));
         state.TryApply(StatMutation.Add(20, StatKind.PoisonApplied, 4));
+        state.TryApply(StatMutation.Add(10, StatKind.DoomApplied, 20));
+        state.TryApply(StatMutation.Add(20, StatKind.DoomApplied, 35));
 
         True(StatsViewModel.TryCreate(state.CaptureSnapshot(), out var viewModel));
         SequenceEqual(new[] { "PLAYER 1", "PLAYER 2", "TEAM" }, viewModel!.ColumnHeaders);
@@ -822,6 +828,9 @@ internal static class Program
         var poison = UiRow(viewModel, "Poison Applied");
         SequenceEqual(new[] { "6", "4" }, poison.PlayerValues);
         Equal("10", poison.TeamValue);
+        var doom = UiRow(viewModel, "Doom Applied");
+        SequenceEqual(new[] { "20", "35" }, doom.PlayerValues);
+        Equal("55", doom.TeamValue);
     }
 
     private static void StatsUiFormatsNumbersDeterministically()
@@ -885,12 +894,13 @@ internal static class Program
         SequenceEqual(
             new[] { "DAMAGE", "HEALING / BLOCK", "KILLS", "CARDS", "ECONOMY", "RELICS", "POTIONS" },
             viewModel!.Sections.Select(section => section.Title).ToArray());
-        Equal(21, viewModel.Sections.Sum(section => section.Rows.Count));
+        Equal(22, viewModel.Sections.Sum(section => section.Rows.Count));
         SequenceEqual(
             new[]
             {
                 StatKind.DamageDealt,
                 StatKind.PoisonApplied,
+                StatKind.DoomApplied,
                 StatKind.DamageTaken,
                 StatKind.AssistedDamage,
                 StatKind.AssistedDamagePrevented
@@ -966,6 +976,8 @@ internal static class Program
             var poison = totals.Single(value =>
                 value!["kind"]!.GetValue<string>() == nameof(StatKind.PoisonApplied));
             totals.Remove(poison);
+            totals.Remove(totals.Single(value =>
+                value!["kind"]!.GetValue<string>() == nameof(StatKind.DoomApplied)));
         }
 
         var diagnostics = root["diagnostics"]!.AsArray();
@@ -991,6 +1003,7 @@ internal static class Program
         Equal(RunStatsSnapshot.CurrentSchemaVersion, migrated!.SchemaVersion);
         Equal(9L, migrated.Players[10].GetTotal(StatKind.DamageDealt));
         Equal(0L, migrated.Players[10].GetTotal(StatKind.PoisonApplied));
+        Equal(0L, migrated.Players[10].GetTotal(StatKind.DoomApplied));
         Equal(0L, migrated.GetDiagnostic(DiagnosticKind.UnsupportedPoisonDamage));
     }
 
@@ -1019,7 +1032,7 @@ internal static class Program
         Equal(
             SidecarLoadResult.SchemaMismatch,
             SidecarSnapshotCodec.TryDeserialize(
-                json.Replace("\"schema_version\": 2", "\"schema_version\": 99", StringComparison.Ordinal),
+                json.Replace("\"schema_version\": 3", "\"schema_version\": 99", StringComparison.Ordinal),
                 snapshot.Identity!,
                 50,
                 out _));
@@ -1560,6 +1573,83 @@ internal static class Program
         Equal(12L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.DamageDealt));
     }
 
+    private static void DoomKillSplitsDamageAndKill()
+    {
+        var state = CreateState(10, 20);
+        var combat = new CoreCombatTracker(state);
+        var doom = new DoomStatTracker(state, combat);
+        var enemy = new object();
+        doom.RecordDirectDamage(enemy, 10, 100);
+        doom.ObserveAmount(enemy, 0, 70, 10);
+        doom.ObserveAmount(enemy, 70, 100, 20);
+        Equal(0L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.DamageDealt));
+        var credit = doom.CaptureKill(enemy, 10);
+        doom.Remove(enemy); // The game's kill removes powers before DoomKill returns.
+        doom.CompleteKill(credit, 10, CombatRoomKind.Elite, 1);
+        doom.CompleteKill(credit, 10, CombatRoomKind.Elite, 1);
+        var snapshot = state.CaptureSnapshot();
+        Equal(70L, snapshot.Players[10].GetTotal(StatKind.DoomApplied));
+        Equal(30L, snapshot.Players[20].GetTotal(StatKind.DoomApplied));
+        Equal(7L, snapshot.Players[10].GetTotal(StatKind.DamageDealt));
+        Equal(3L, snapshot.Players[20].GetTotal(StatKind.DamageDealt));
+        Equal(1L, snapshot.Players[10].GetTotal(StatKind.EnemiesKilled));
+        Equal(0L, snapshot.Players[20].GetTotal(StatKind.EnemiesKilled));
+        Equal(1L, snapshot.Players[10].GetTotal(StatKind.EliteEnemiesKilled));
+    }
+
+    private static void DoomKillTieBreaks()
+    {
+        var state = CreateState(10, 20);
+        var doom = new DoomStatTracker(state, new CoreCombatTracker(state));
+        var first = new object();
+        doom.ObserveAmount(first, 0, 20, 10);
+        doom.ObserveAmount(first, 20, 40, 20);
+        doom.RecordDirectDamage(first, 10, 4);
+        doom.RecordDirectDamage(first, 20, 7);
+        doom.CompleteKill(doom.CaptureKill(first, 40), 40, CombatRoomKind.Normal, 0);
+        Equal(1L, state.CaptureSnapshot().Players[20].GetTotal(StatKind.EnemiesKilled));
+
+        var second = new object();
+        doom.ObserveAmount(second, 0, 20, 10);
+        doom.ObserveAmount(second, 20, 40, 20);
+        doom.RecordDirectDamage(second, 10, 7);
+        doom.RecordDirectDamage(second, 20, 7);
+        doom.CompleteKill(doom.CaptureKill(second, 40), 40, CombatRoomKind.Normal, 0);
+        Equal(1L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.EnemiesKilled));
+    }
+
+    private static void UnattributedDoomDoesNotInflateDamage()
+    {
+        var state = CreateState(10);
+        var doom = new DoomStatTracker(state, new CoreCombatTracker(state));
+        var enemy = new object();
+        doom.ObserveAmount(enemy, 0, 5, 10);
+        doom.ObserveAmount(enemy, 5, 10, null);
+        doom.CompleteKill(doom.CaptureKill(enemy, 2), 2, CombatRoomKind.Normal, 0);
+        Equal(1L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.DamageDealt));
+        Equal(5L, state.CaptureSnapshot().Players[10].GetTotal(StatKind.DoomApplied));
+    }
+
+    private static void SidecarSchemaTwoMigratesDoom()
+    {
+        var state = CreateState(10);
+        state.TryApply(StatMutation.Add(10, StatKind.PoisonApplied, 9));
+        var snapshot = state.CaptureSnapshot();
+        var root = JsonNode.Parse(SidecarSnapshotCodec.Serialize(snapshot, 55))!.AsObject();
+        root["schema_version"] = 2;
+        root["snapshot_schema_version"] = 2;
+        foreach (var player in root["players"]!.AsArray())
+        {
+            var totals = player!["totals"]!.AsArray();
+            totals.Remove(totals.Single(value =>
+                value!["kind"]!.GetValue<string>() == nameof(StatKind.DoomApplied)));
+        }
+        Equal(SidecarLoadResult.Loaded,
+            SidecarSnapshotCodec.TryDeserialize(root.ToJsonString(), snapshot.Identity!, 55, out var migrated));
+        Equal(9L, migrated!.Players[10].GetTotal(StatKind.PoisonApplied));
+        Equal(0L, migrated.Players[10].GetTotal(StatKind.DoomApplied));
+    }
+
     private static PoisonStatTracker CreatePoisonTracker(RunStatsState state)
     {
         var combat = new CoreCombatTracker(state);
@@ -1622,6 +1712,7 @@ internal static class Program
         StatKind.AssistedDamage => "Assisted Damage",
         StatKind.AssistedDamagePrevented => "Assisted Damage Prevented",
         StatKind.PoisonApplied => "Poison Applied",
+        StatKind.DoomApplied => "Doom Applied",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

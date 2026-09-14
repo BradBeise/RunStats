@@ -10,5 +10,5 @@ public sealed record StatsSyncSnapshot(
     RunStatsSnapshot Stats,
     IReadOnlyList<AssistedOwnershipRecord> AssistedOwnership)
 {
-    public const int CurrentProtocolVersion = 2;
+    public const int CurrentProtocolVersion = 3;
 }

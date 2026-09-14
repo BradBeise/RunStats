@@ -3,8 +3,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>RunStats</RootNamespace>
     <AssemblyName>RunStats</AssemblyName>
-    <Version>0.2.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <Version>0.3.0</Version>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>

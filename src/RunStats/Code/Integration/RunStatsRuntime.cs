@@ -20,6 +20,7 @@ using MegaCrit.Sts2.Core.Saves;
 using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.ValueProps;
 using RunStats.Infrastructure;
 using RunStats.Models;
@@ -48,6 +49,8 @@ public static class RunStatsRuntime
         CombatTracker,
         PoisonContributionLedger,
         AccelerantSponsorLedger);
+    private static readonly DoomStatTracker DoomTracker = new(State, CombatTracker);
+    private static readonly AsyncLocal<ulong?> CurrentDoomCardContributor = new();
     private static readonly AsyncLocal<DamageAssistScope?> CurrentDamageScope = new();
     private static readonly AsyncLocal<PoisonSequenceScope?> CurrentPoisonSequence = new();
     private static readonly AsyncLocal<PoisonDamageCommandScope?> CurrentPoisonDamageCommand = new();
@@ -167,6 +170,10 @@ public static class RunStatsRuntime
             RecordAssistedDamage(target, result);
             var player = ResolvePlayer(dealer);
             ulong? sourcePlayerNetId = player?.NetId;
+            if (target.IsEnemy)
+            {
+                DoomTracker.RecordDirectDamage(target, sourcePlayerNetId, result.UnblockedDamage);
+            }
             if (dealer is not null && player is null)
             {
                 return;
@@ -297,6 +304,16 @@ public static class RunStatsRuntime
                 return;
             }
 
+            if (power is DoomPower && power.Owner.IsEnemy)
+            {
+                DoomTracker.ObserveAmount(
+                    power.Owner,
+                    previousAmount,
+                    currentAmount,
+                    CurrentDoomCardContributor.Value ?? ResolvePlayer(applier)?.NetId);
+                return;
+            }
+
             if (power is AccelerantPower && currentAmount > previousAmount)
             {
                 var applierPlayer = ResolvePlayer(applier);
@@ -331,6 +348,47 @@ public static class RunStatsRuntime
 
                 PoisonTracker.ObservePoisonAmount(power.Owner, power.Amount, 0, null);
             }
+            else if (IsRunActive() && power is DoomPower && power.Owner.IsEnemy)
+            {
+                DoomTracker.Remove(power.Owner);
+            }
+        });
+    }
+
+    internal static ulong? BeginDoomCardApplication(PowerModel power, CardModel? cardSource)
+    {
+        var previous = CurrentDoomCardContributor.Value;
+        if (power is DoomPower)
+        {
+            CurrentDoomCardContributor.Value = cardSource is Misery
+                ? cardSource.Owner.NetId
+                : null;
+        }
+        return previous;
+    }
+
+    internal static void EndDoomCardApplication(ulong? previous) =>
+        CurrentDoomCardContributor.Value = previous;
+
+    internal static DoomKillCredit CaptureDoomKill(Creature enemy) =>
+        DoomTracker.CaptureKill(enemy, enemy.CurrentHp);
+
+    internal static void CompleteDoomKill(DoomKillCredit credit, Creature enemy)
+    {
+        Safely(nameof(CompleteDoomKill), () =>
+        {
+            if (!IsRunActive() || !enemy.IsDead || !enemy.IsEnemy)
+            {
+                return;
+            }
+            var roomKind = enemy.CombatState?.RunState.CurrentRoom?.RoomType switch
+            {
+                RoomType.Elite => CombatRoomKind.Elite,
+                RoomType.Boss => CombatRoomKind.Boss,
+                _ => CombatRoomKind.Normal
+            };
+            var hpRemoved = Math.Max(0, (long)credit.HpBefore - enemy.CurrentHp);
+            DoomTracker.CompleteKill(credit, hpRemoved, roomKind, BuildPoisonKillEntropy(enemy, enemy));
         });
     }
 
@@ -625,6 +683,8 @@ public static class RunStatsRuntime
             CombatTracker.ResetForRun();
             ContributorLedger.Clear();
             PoisonTracker.ResetCombat();
+            DoomTracker.Clear();
+            CurrentDoomCardContributor.Value = null;
             CurrentPoisonSequence.Value = null;
             CurrentPoisonDamageCommand.Value = null;
             MaxHpGainScopes.Clear();
@@ -644,6 +704,8 @@ public static class RunStatsRuntime
             CombatTracker.ResetForRun();
             ContributorLedger.Clear();
             PoisonTracker.ResetCombat();
+            DoomTracker.Clear();
+            CurrentDoomCardContributor.Value = null;
             CurrentPoisonSequence.Value = null;
             CurrentPoisonDamageCommand.Value = null;
             MaxHpGainScopes.Clear();
@@ -717,6 +779,8 @@ public static class RunStatsRuntime
     private static void OnCombatEnded(CombatRoom room) => Safely(nameof(OnCombatEnded), () =>
     {
         PoisonTracker.ResetCombat();
+        DoomTracker.Clear();
+        CurrentDoomCardContributor.Value = null;
         CombatTracker.ResetForRun();
         ContributorLedger.Clear();
         CurrentPoisonSequence.Value = null;
@@ -739,9 +803,17 @@ public static class RunStatsRuntime
                 actualDamage,
                 scope.IsExtraTrigger,
                 scope.SponsorNetId,
-                out _))
+                out var allocation))
         {
             return;
+        }
+
+        foreach (var (player, damage) in allocation.PlayerDamage)
+        {
+            if (damage > 0)
+            {
+                DoomTracker.RecordDirectDamage(owner, player, damage);
+            }
         }
 
         var roomKind = owner.CombatState?.RunState.CurrentRoom?.RoomType switch
