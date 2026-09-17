@@ -13,8 +13,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
     private readonly Func<RunStatsSidecarStore> _storeFactory;
     private readonly Action<string, Exception> _onError;
     private readonly TimeSpan _pendingDebounce;
-    private readonly Func<IReadOnlyList<AssistedOwnershipRecord>> _captureAssistedOwnership;
-    private readonly Action<IReadOnlyList<AssistedOwnershipRecord>> _applyAssistedOwnership;
+    private readonly Action<IReadOnlyList<AssistedOwnershipRecord>> _onLegacyAssistedOwnership;
     private readonly Timer _pendingTimer;
     private PreparedSave? _preparedSave;
     private PendingSave? _pendingSave;
@@ -27,15 +26,12 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
         Func<RunStatsSidecarStore> storeFactory,
         Action<string, Exception> onError,
         TimeSpan? pendingDebounce = null,
-        Func<IReadOnlyList<AssistedOwnershipRecord>>? captureAssistedOwnership = null,
-        Action<IReadOnlyList<AssistedOwnershipRecord>>? applyAssistedOwnership = null)
+        Action<IReadOnlyList<AssistedOwnershipRecord>>? onLegacyAssistedOwnership = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
         _onError = onError ?? throw new ArgumentNullException(nameof(onError));
-        _captureAssistedOwnership = captureAssistedOwnership ??
-            (() => Array.Empty<AssistedOwnershipRecord>());
-        _applyAssistedOwnership = applyAssistedOwnership ?? (_ => { });
+        _onLegacyAssistedOwnership = onLegacyAssistedOwnership ?? (_ => { });
         _pendingDebounce = pendingDebounce ?? TimeSpan.FromSeconds(1);
         if (_pendingDebounce <= TimeSpan.Zero)
         {
@@ -64,7 +60,10 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
             out var ownership);
         if (result == SidecarLoadResult.Loaded)
         {
-            _applyAssistedOwnership(ownership);
+            if (ownership.Count > 0)
+            {
+                _onLegacyAssistedOwnership(ownership);
+            }
         }
         if (!baseline.TryMergeInto(_state))
         {
@@ -93,8 +92,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
         {
             _preparedSave = new PreparedSave(
                 snapshot,
-                vanillaSaveTime,
-                _captureAssistedOwnership());
+                vanillaSaveTime);
         }
     }
 
@@ -115,8 +113,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
         {
             _storeFactory().WriteActive(
                 prepared.Snapshot,
-                prepared.VanillaSaveTime,
-                prepared.AssistedOwnership);
+                prepared.VanillaSaveTime);
         }
     }
 
@@ -132,8 +129,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
         _storeFactory().ArchiveSnapshot(
             snapshot,
             saveTime,
-            reason,
-            _captureAssistedOwnership());
+            reason);
     }
 
     public void ArchiveDeleted(RunMode mode, string reason)
@@ -191,7 +187,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
                 return;
             }
 
-            _pendingSave = new PendingSave(snapshot, _captureAssistedOwnership());
+            _pendingSave = new PendingSave(snapshot);
             _pendingStore = store;
             _pendingTimer.Change(_pendingDebounce, Timeout.InfiniteTimeSpan);
         }
@@ -216,7 +212,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
 
         try
         {
-            store.WritePending(pending.Snapshot, pending.AssistedOwnership);
+            store.WritePending(pending.Snapshot);
         }
         catch (Exception exception)
         {
@@ -236,10 +232,7 @@ public sealed class RunStatsPersistenceCoordinator : IDisposable
 
     private sealed record PreparedSave(
         RunStatsSnapshot Snapshot,
-        long VanillaSaveTime,
-        IReadOnlyList<AssistedOwnershipRecord> AssistedOwnership);
+        long VanillaSaveTime);
 
-    private sealed record PendingSave(
-        RunStatsSnapshot Snapshot,
-        IReadOnlyList<AssistedOwnershipRecord> AssistedOwnership);
+    private sealed record PendingSave(RunStatsSnapshot Snapshot);
 }

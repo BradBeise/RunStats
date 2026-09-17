@@ -12,9 +12,10 @@ namespace RunStats.Persistence;
 
 public static class SidecarSnapshotCodec
 {
-    public const int CurrentSchemaVersion = 3;
-    public const int PreviousSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 4;
+    public const int DoomSchemaVersion = 3;
     public const int PoisonSchemaVersion = 2;
+    public const int LegacySchemaVersion = 1;
     public const string ModId = "com.bradbeise.runstats";
     public const int MaxJsonCharacters = 1_048_576;
 
@@ -35,7 +36,9 @@ public static class SidecarSnapshotCodec
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(assistedOwnership);
-        if (snapshot.Identity is null || vanillaSaveTime < 0 ||
+        if (snapshot.SchemaVersion != RunStatsSnapshot.CurrentSchemaVersion ||
+            snapshot.SchemaVersion != CurrentSchemaVersion ||
+            snapshot.Identity is null || vanillaSaveTime < 0 ||
             !SnapshotReconciler.ValidateAssistedOwnership(assistedOwnership, snapshot.Identity))
         {
             throw new ArgumentException("A sidecar requires valid run identity, checkpoint, and ownership data.");
@@ -86,7 +89,8 @@ public static class SidecarSnapshotCodec
 
         if (document is null || document.Identity is null || document.Players is null ||
             document.Diagnostics is null || document.AssistedOwnership is null ||
-            document.SchemaVersion is not (PreviousSchemaVersion or PoisonSchemaVersion or CurrentSchemaVersion) ||
+            document.SchemaVersion is not (
+                LegacySchemaVersion or PoisonSchemaVersion or DoomSchemaVersion or CurrentSchemaVersion) ||
             document.SnapshotSchemaVersion != document.SchemaVersion ||
             !string.Equals(document.ModId, ModId, StringComparison.Ordinal))
         {
@@ -134,19 +138,20 @@ public static class SidecarSnapshotCodec
                 {
                     if (!Enum.TryParse(value.Kind, false, out StatKind kind) ||
                         !Enum.IsDefined(kind) ||
-                        (document.SchemaVersion == PreviousSchemaVersion && kind == StatKind.PoisonApplied) ||
-                        (document.SchemaVersion < CurrentSchemaVersion && kind == StatKind.DoomApplied) ||
+                        (document.SchemaVersion == LegacySchemaVersion && kind == StatKind.PoisonApplied) ||
+                        (document.SchemaVersion < DoomSchemaVersion && kind == StatKind.DoomApplied) ||
+                        !IsValidPersistedTotal(document.SchemaVersion, kind, value.Value) ||
                         !totals.TryAdd(kind, value.Value))
                     {
                         return SidecarLoadResult.InvalidSnapshot;
                     }
                 }
 
-                if (document.SchemaVersion == PreviousSchemaVersion)
+                if (document.SchemaVersion == LegacySchemaVersion)
                 {
                     totals.Add(StatKind.PoisonApplied, 0);
                 }
-                if (document.SchemaVersion < CurrentSchemaVersion)
+                if (document.SchemaVersion < DoomSchemaVersion)
                 {
                     totals.Add(StatKind.DoomApplied, 0);
                 }
@@ -182,7 +187,7 @@ public static class SidecarSnapshotCodec
 
                 if (!Enum.TryParse(value.Kind, false, out DiagnosticKind kind) ||
                     !Enum.IsDefined(kind) ||
-                    (document.SchemaVersion == PreviousSchemaVersion &&
+                    (document.SchemaVersion == LegacySchemaVersion &&
                      kind > DiagnosticKind.DuplicateEventSuppressed) ||
                     !diagnostics.TryAdd(kind, value.Value))
                 {
@@ -191,7 +196,7 @@ public static class SidecarSnapshotCodec
             }
 
 
-            if (document.SchemaVersion == PreviousSchemaVersion)
+            if (document.SchemaVersion == LegacySchemaVersion)
             {
                 diagnostics.Add(DiagnosticKind.UnattributedPoisonApplication, 0);
                 diagnostics.Add(DiagnosticKind.UnsupportedPoisonDamage, 0);
@@ -247,6 +252,13 @@ public static class SidecarSnapshotCodec
 
         return SidecarLoadResult.Loaded;
     }
+
+    private static bool IsValidPersistedTotal(
+        int schemaVersion,
+        StatKind kind,
+        long value) => schemaVersion >= CurrentSchemaVersion
+        ? StatSemantics.IsValidTotal(kind, value)
+        : value >= 0;
 
     private static SidecarDocument ToDocument(
         RunStatsSnapshot snapshot,

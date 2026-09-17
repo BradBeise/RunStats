@@ -11,7 +11,7 @@ public sealed record RunStatsSnapshot(
     IReadOnlyDictionary<ulong, PlayerStatsSnapshot> Players,
     IReadOnlyDictionary<DiagnosticKind, long> Diagnostics)
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public bool TryGetPlayer(ulong playerNetId, out PlayerStatsSnapshot? player) =>
         Players.TryGetValue(playerNetId, out player);

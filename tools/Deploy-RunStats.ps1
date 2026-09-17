@@ -1,9 +1,9 @@
-[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Debug',
 
-    [string] $GameRoot = 'D:\Steam\steamapps\common\Slay the Spire 2',
+    [string] $GameRoot = 'D:\SteamLibrary\steamapps\common\Slay the Spire 2',
 
     [switch] $ApproveFirstDeployment
 )
@@ -27,10 +27,13 @@ $modsRoot = Join-Path $gameRootFull 'mods'
 $destination = Join-Path $modsRoot 'RunStats'
 $allowedNames = @(
     'RunStats.dll',
-    'RunStats.pdb',
     'runstats.pck',
     'mod_manifest.json'
 )
+
+if ($Configuration -eq 'Debug') {
+    $allowedNames += 'RunStats.pdb'
+}
 
 $sources = @{}
 foreach ($name in $allowedNames) {

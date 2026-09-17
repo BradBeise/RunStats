@@ -12,6 +12,7 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Gold;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Platform;
 using MegaCrit.Sts2.Core.Rooms;
@@ -41,7 +42,14 @@ public static class RunStatsRuntime
         new(ReferenceEqualityComparer.Instance);
     private static readonly CoreCombatTracker CombatTracker = new(State);
     private static readonly RunProgressTracker ProgressTracker = new(State);
-    private static readonly UniqueContributorLedger ContributorLedger = new();
+    private static readonly AssistedContributionTracker AssistedContributionTracker = new();
+    private static readonly AssistedStatTracker AssistedStats = new(
+        State,
+        AssistedContributionTracker);
+    private static readonly StrengthImpactLedger StrengthImpactLedger = new();
+    private static readonly StrengthContributionTracker StrengthTracker = new(
+        StrengthImpactLedger);
+    private static readonly StrengthStatTracker StrengthStats = new(State);
     private static readonly PoisonContributionLedger PoisonContributionLedger = new();
     private static readonly AccelerantSponsorLedger AccelerantSponsorLedger = new();
     private static readonly PoisonStatTracker PoisonTracker = new(
@@ -54,8 +62,14 @@ public static class RunStatsRuntime
     private static readonly AsyncLocal<DamageAssistScope?> CurrentDamageScope = new();
     private static readonly AsyncLocal<PoisonSequenceScope?> CurrentPoisonSequence = new();
     private static readonly AsyncLocal<PoisonDamageCommandScope?> CurrentPoisonDamageCommand = new();
+    private static readonly AsyncLocal<TemporaryStrengthMutationScope?> CurrentTemporaryStrengthMutation = new();
+    private static readonly AsyncLocal<OwnedStrengthSourceScope?> CurrentOwnedStrengthSource = new();
     private static readonly HashSet<string> LoggedFailures = new(StringComparer.Ordinal);
+    private static readonly MethodInfo DamageAdditiveMethod =
+        GetModelMethod(nameof(AbstractModel.ModifyDamageAdditive));
     private static readonly MethodInfo DamageCapMethod = GetModelMethod(nameof(AbstractModel.ModifyDamageCap));
+    private static readonly MethodInfo DamageMultiplicativeMethod =
+        GetModelMethod(nameof(AbstractModel.ModifyDamageMultiplicative));
     private static readonly MethodInfo HpLostBeforeMethod = GetModelMethod(nameof(AbstractModel.ModifyHpLostBeforeOsty));
     private static readonly MethodInfo HpLostBeforeLateMethod = GetModelMethod(nameof(AbstractModel.ModifyHpLostBeforeOstyLate));
     private static readonly MethodInfo HpLostAfterMethod = GetModelMethod(nameof(AbstractModel.ModifyHpLostAfterOsty));
@@ -65,6 +79,7 @@ public static class RunStatsRuntime
     private static RunStatsPersistenceCoordinator? _persistence;
     private static LoadedRunCheckpoint? _loadedRunCheckpoint;
     private static RunState? _activeRunState;
+    private static ActionExecutor? _subscribedActionExecutor;
     private static RunStatsSnapshot? _lastCompletedSnapshot;
     private static bool _initialized;
 
@@ -148,8 +163,7 @@ public static class RunStatsRuntime
             State,
             CreateSidecarStore,
             (message, exception) => RunStatsLog.Error(message, exception),
-            captureAssistedOwnership: CaptureAssistedOwnership,
-            applyAssistedOwnership: ApplyAssistedOwnership);
+            onLegacyAssistedOwnership: DiscardLegacyAssistedOwnership);
         _initialized = true;
         RunStatsLog.Debug("Core runtime subscribed to run lifecycle events.");
     }
@@ -210,6 +224,101 @@ public static class RunStatsRuntime
         }
     }
 
+    internal static TemporaryStrengthMutationScope BeginTemporaryStrengthMutation(
+        TemporaryStrengthPower power,
+        bool isRestoration)
+    {
+        var scope = new TemporaryStrengthMutationScope(
+            CurrentTemporaryStrengthMutation.Value,
+            power,
+            isRestoration);
+        CurrentTemporaryStrengthMutation.Value = scope;
+        return scope;
+    }
+
+    internal static async Task CompleteTemporaryStrengthMutationAsync(
+        Task original,
+        TemporaryStrengthMutationScope scope)
+    {
+        try
+        {
+            await original;
+        }
+        finally
+        {
+            if (scope.IsRestoration)
+            {
+                StrengthTracker.ForgetSource(scope.Power);
+            }
+
+            if (ReferenceEquals(CurrentTemporaryStrengthMutation.Value, scope))
+            {
+                CurrentTemporaryStrengthMutation.Value = scope.Parent;
+            }
+        }
+    }
+
+    internal static OwnedStrengthSourceScope BeginOwnedStrengthSource(
+        object source,
+        ulong contributorNetId)
+    {
+        var scope = new OwnedStrengthSourceScope(
+            CurrentOwnedStrengthSource.Value,
+            source,
+            contributorNetId);
+        CurrentOwnedStrengthSource.Value = scope;
+        return scope;
+    }
+
+    internal static async Task CompleteOwnedStrengthSourceAsync(
+        Task original,
+        OwnedStrengthSourceScope scope)
+    {
+        try
+        {
+            await original;
+        }
+        finally
+        {
+            if (ReferenceEquals(CurrentOwnedStrengthSource.Value, scope))
+            {
+                CurrentOwnedStrengthSource.Value = scope.Parent;
+            }
+        }
+    }
+
+    internal static async Task<IEnumerable<DamageResult>> CompleteDamageAssistScopeAsync(
+        Task<IEnumerable<DamageResult>> original,
+        DamageAssistScope scope)
+    {
+        try
+        {
+            var results = await original;
+            Safely(nameof(CompleteDamageAssistScopeAsync), () =>
+                RecordAggregatedWeakPrevention(scope));
+            return results;
+        }
+        finally
+        {
+            Safely(nameof(CompleteDamageAssistScopeAsync), () =>
+            {
+                foreach (var owner in scope.DeferredVulnerableResets)
+                {
+                    AssistedContributionTracker.ResetCycle(
+                        AssistedEffectKind.Vulnerable,
+                        owner);
+                }
+
+                foreach (var owner in scope.DeferredWeakResets)
+                {
+                    AssistedContributionTracker.ResetCycle(
+                        AssistedEffectKind.Weak,
+                        owner);
+                }
+            });
+        }
+    }
+
     public static void OnDamageModified(
         IRunState runState,
         ICombatState? combatState,
@@ -219,7 +328,8 @@ public static class RunStatsRuntime
         CardModel? cardSource,
         ModifyDamageHookType hookType,
         IEnumerable<AbstractModel> modifiers,
-        decimal modifiedDamage)
+        decimal modifiedDamage,
+        decimal unmodifiedDamage)
     {
         Safely(nameof(OnDamageModified), () =>
         {
@@ -250,6 +360,17 @@ public static class RunStatsRuntime
                     modifiedDamage,
                     attacker.NetId,
                     powers);
+                TryObserveStrengthAssistedDamage(
+                    scope,
+                    runState,
+                    combatState,
+                    target,
+                    dealer!,
+                    props,
+                    cardSource,
+                    modifiedDamage,
+                    modifierList,
+                    powers);
                 return;
             }
 
@@ -265,18 +386,19 @@ public static class RunStatsRuntime
                     modifiedDamage,
                     target.Player.NetId,
                     powers);
-            }
-        });
-    }
-
-    public static void OnPowerContribution(PowerModel power, Creature? applier)
-    {
-        Safely(nameof(OnPowerContribution), () =>
-        {
-            if (power is VulnerablePower or WeakPower)
-            {
-                ContributorLedger.Resolve(power, ResolvePlayer(power.Applier)?.NetId);
-                ContributorLedger.ObserveContribution(power, ResolvePlayer(applier)?.NetId);
+                TryObserveStrengthPreventedDamage(
+                    scope,
+                    runState,
+                    combatState,
+                    target,
+                    dealer,
+                    props,
+                    cardSource,
+                    modifiedDamage,
+                    target.Player.NetId,
+                    modifierList,
+                    powers,
+                    unmodifiedDamage);
             }
         });
     }
@@ -293,6 +415,14 @@ public static class RunStatsRuntime
             {
                 return;
             }
+
+            if (power is StrengthPower strengthPower)
+            {
+                ObserveStrengthAmount(strengthPower, applier, previousAmount, currentAmount);
+                return;
+            }
+
+            ObserveStrengthSourceOwner(power, applier, previousAmount, currentAmount);
 
             if (power is PoisonPower && power.Owner.IsEnemy)
             {
@@ -311,6 +441,29 @@ public static class RunStatsRuntime
                     previousAmount,
                     currentAmount,
                     CurrentDoomCardContributor.Value ?? ResolvePlayer(applier)?.NetId);
+                return;
+            }
+
+            if (power.Owner.IsEnemy && TryGetAssistedEffectKind(power, out var assistedKind))
+            {
+                if (currentAmount == 0 && TryDeferAssistedCycleReset(power.Owner, assistedKind))
+                {
+                    return;
+                }
+
+                var observation = AssistedContributionTracker.ObserveAmount(
+                    assistedKind,
+                    power.Owner,
+                    previousAmount,
+                    currentAmount,
+                    ResolvePlayer(applier)?.NetId);
+                if (!observation.Accepted)
+                {
+                    State.TryRecordDiagnostic(
+                        assistedKind == AssistedEffectKind.Vulnerable
+                            ? DiagnosticKind.AmbiguousAssistedDamage
+                            : DiagnosticKind.AmbiguousAssistedDamagePrevented);
+                }
                 return;
             }
 
@@ -333,6 +486,39 @@ public static class RunStatsRuntime
     {
         Safely(nameof(OnPowerRemoved), () =>
         {
+            if (IsRunActive() && power is StrengthPower && power.Amount != 0)
+            {
+                StrengthTracker.ObserveAmount(
+                    CurrentPlayerAction(),
+                    power.Owner,
+                    power.Owner.Player?.NetId,
+                    power.Amount,
+                    0,
+                    null,
+                    null,
+                    -1,
+                    StrengthImpactExpiryKind.UntilStrengthReset,
+                    null);
+            }
+
+            if (IsRunActive() && power is TemporaryStrengthPower temporaryStrength)
+            {
+                var temporaryScope = CurrentTemporaryStrengthMutation.Value;
+                if (temporaryScope is null ||
+                    !temporaryScope.IsRestoration ||
+                    !ReferenceEquals(temporaryScope.Power, temporaryStrength))
+                {
+                    StrengthTracker.ExpireSource(
+                        CurrentPlayerAction(),
+                        power.Owner,
+                        temporaryStrength);
+                }
+            }
+            else if (power is not StrengthPower)
+            {
+                StrengthTracker.ForgetSource(power);
+            }
+
             if (IsRunActive() && power is PoisonPower && power.Owner.IsEnemy)
             {
                 var damageScope = CurrentPoisonDamageCommand.Value;
@@ -351,6 +537,17 @@ public static class RunStatsRuntime
             else if (IsRunActive() && power is DoomPower && power.Owner.IsEnemy)
             {
                 DoomTracker.Remove(power.Owner);
+            }
+
+            if (IsRunActive() && power.Owner.IsEnemy &&
+                TryGetAssistedEffectKind(power, out var assistedKind))
+            {
+                if (TryDeferAssistedCycleReset(power.Owner, assistedKind))
+                {
+                    return;
+                }
+
+                AssistedContributionTracker.ResetCycle(assistedKind, power.Owner);
             }
         });
     }
@@ -678,15 +875,19 @@ public static class RunStatsRuntime
         Safely(nameof(OnRunCleanup), () =>
         {
             _persistence?.ResetRun();
+            DetachActionEvents();
             DetachCreatureEvents();
             DetachPlayerEvents();
             CombatTracker.ResetForRun();
-            ContributorLedger.Clear();
+            AssistedContributionTracker.ResetCombat();
+            StrengthTracker.ResetCombat();
             PoisonTracker.ResetCombat();
             DoomTracker.Clear();
             CurrentDoomCardContributor.Value = null;
             CurrentPoisonSequence.Value = null;
             CurrentPoisonDamageCommand.Value = null;
+            CurrentTemporaryStrengthMutation.Value = null;
+            CurrentOwnedStrengthSource.Value = null;
             MaxHpGainScopes.Clear();
             State.Clear();
             _activeRunState = null;
@@ -699,15 +900,19 @@ public static class RunStatsRuntime
     {
         Safely(nameof(OnRunStarted), () =>
         {
+            DetachActionEvents();
             DetachCreatureEvents();
             DetachPlayerEvents();
             CombatTracker.ResetForRun();
-            ContributorLedger.Clear();
+            AssistedContributionTracker.ResetCombat();
+            StrengthTracker.ResetCombat();
             PoisonTracker.ResetCombat();
             DoomTracker.Clear();
             CurrentDoomCardContributor.Value = null;
             CurrentPoisonSequence.Value = null;
             CurrentPoisonDamageCommand.Value = null;
+            CurrentTemporaryStrengthMutation.Value = null;
+            CurrentOwnedStrengthSource.Value = null;
             MaxHpGainScopes.Clear();
             State.Clear();
             _activeRunState = null;
@@ -732,6 +937,7 @@ public static class RunStatsRuntime
 
             State.StartRun(identity);
             _activeRunState = runState;
+            AttachActionEvents();
             RestorePersistedState(runState, identity);
             try
             {
@@ -743,6 +949,7 @@ public static class RunStatsRuntime
             }
             catch
             {
+                DetachActionEvents();
                 DetachCreatureEvents();
                 DetachPlayerEvents();
                 State.Clear();
@@ -774,7 +981,192 @@ public static class RunStatsRuntime
             _persistence?.ArchiveDeleted(mode, "abandoned");
         });
 
+    internal static void OnPlayerActionCanceled(GameAction action) =>
+        Safely(nameof(OnPlayerActionCanceled), () => StrengthTracker.CancelAction(action));
+
+    private static void OnBeforePlayerAction(GameAction action)
+    {
+        Safely(nameof(OnBeforePlayerAction), () =>
+        {
+            if (IsRunActive() && CombatManager.Instance.IsInProgress)
+            {
+                StrengthTracker.BeginAction(
+                    action,
+                    action.OwnerId,
+                    CaptureStrengthSnapshot());
+            }
+        });
+    }
+
+    private static void OnAfterPlayerAction(GameAction action)
+    {
+        Safely(nameof(OnAfterPlayerAction), () =>
+        {
+            var completion = StrengthTracker.CompleteAction(
+                action,
+                CaptureStrengthSnapshot());
+            if (!completion.Accepted && completion.TargetsReset > 0)
+            {
+                RunStatsLog.Warn(
+                    "Strength action reconciliation failed; affected contribution ledgers were reset.");
+            }
+        });
+    }
+
+    private static void AttachActionEvents()
+    {
+        DetachActionEvents();
+        var executor = RunManager.Instance.ActionExecutor;
+        executor.BeforeActionExecuted += OnBeforePlayerAction;
+        executor.AfterActionExecuted += OnAfterPlayerAction;
+        _subscribedActionExecutor = executor;
+    }
+
+    private static void DetachActionEvents()
+    {
+        if (_subscribedActionExecutor is null)
+        {
+            return;
+        }
+
+        _subscribedActionExecutor.BeforeActionExecuted -= OnBeforePlayerAction;
+        _subscribedActionExecutor.AfterActionExecuted -= OnAfterPlayerAction;
+        _subscribedActionExecutor = null;
+    }
+
+    private static IReadOnlyDictionary<object, StrengthTargetSnapshot> CaptureStrengthSnapshot()
+    {
+        var snapshot = new Dictionary<object, StrengthTargetSnapshot>(
+            ReferenceEqualityComparer.Instance);
+        var combatState = _activeRunState?.Players
+            .Select(player => player.Creature.CombatState)
+            .FirstOrDefault(state => state is not null);
+        if (combatState is null)
+        {
+            return snapshot;
+        }
+
+        foreach (var creature in combatState.Creatures)
+        {
+            snapshot.Add(
+                creature,
+                new StrengthTargetSnapshot(
+                    creature.GetPowerAmount<StrengthPower>(),
+                    creature.Player?.NetId));
+        }
+
+        return snapshot;
+    }
+
+    private static void ObserveStrengthAmount(
+        StrengthPower power,
+        Creature? applier,
+        int previousAmount,
+        int currentAmount)
+    {
+        var action = CurrentPlayerAction();
+        var temporaryScope = CurrentTemporaryStrengthMutation.Value;
+        var delayedSource = CurrentDelayedStrengthSource(action);
+        var delayedContributor = delayedSource is null
+            ? null
+            : StrengthTracker.ResolveSourceOwner(delayedSource);
+        delayedContributor ??= CurrentOwnedStrengthSource.Value?.ContributorNetId;
+        var result = StrengthTracker.ObserveAmount(
+            action,
+            power.Owner,
+            power.Owner.Player?.NetId,
+            previousAmount,
+            currentAmount,
+            ResolvePlayer(applier)?.NetId,
+            delayedContributor,
+            temporaryScope is null ? -1 : 1,
+            temporaryScope is null
+                ? StrengthImpactExpiryKind.CombatPersistent
+                : StrengthImpactExpiryKind.FixedTemporary,
+            temporaryScope?.Power);
+        if (!result.Accepted)
+        {
+            State.TryRecordDiagnostic(
+                power.Owner.IsEnemy
+                    ? DiagnosticKind.AmbiguousAssistedDamagePrevented
+                    : DiagnosticKind.AmbiguousAssistedDamage);
+        }
+    }
+
+    private static void ObserveStrengthSourceOwner(
+        PowerModel power,
+        Creature? applier,
+        int previousAmount,
+        int currentAmount)
+    {
+        if (previousAmount != 0 || currentAmount == 0)
+        {
+            return;
+        }
+
+        var actionOwner = CurrentPlayerAction()?.OwnerId;
+        var contributor = actionOwner is > 0
+            ? actionOwner
+            : ResolvePlayer(applier)?.NetId;
+        if (contributor is > 0)
+        {
+            StrengthTracker.ObserveSourceOwner(power, contributor.Value);
+        }
+    }
+
+    private static GameAction? CurrentPlayerAction()
+    {
+        try
+        {
+            return RunManager.Instance.ActionExecutor?.CurrentlyRunningAction;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static PowerModel? CurrentDelayedStrengthSource(GameAction? action) =>
+        action is GenericHookGameAction hookAction
+            ? hookAction.ChoiceContext?.Source as PowerModel
+            : null;
+
     private static Player? ResolvePlayer(Creature? creature) => creature?.Player ?? creature?.PetOwner;
+
+    private static bool TryGetAssistedEffectKind(
+        PowerModel power,
+        out AssistedEffectKind kind)
+    {
+        if (power is VulnerablePower)
+        {
+            kind = AssistedEffectKind.Vulnerable;
+            return true;
+        }
+
+        if (power is WeakPower)
+        {
+            kind = AssistedEffectKind.Weak;
+            return true;
+        }
+
+        kind = default;
+        return false;
+    }
+
+    private static bool TryDeferAssistedCycleReset(
+        Creature owner,
+        AssistedEffectKind kind)
+    {
+        for (var scope = CurrentDamageScope.Value; scope is not null; scope = scope.Parent)
+        {
+            if (scope.TryDeferReset(owner, kind))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static void OnCombatEnded(CombatRoom room) => Safely(nameof(OnCombatEnded), () =>
     {
@@ -782,9 +1174,12 @@ public static class RunStatsRuntime
         DoomTracker.Clear();
         CurrentDoomCardContributor.Value = null;
         CombatTracker.ResetForRun();
-        ContributorLedger.Clear();
+        AssistedContributionTracker.ResetCombat();
+        StrengthTracker.ResetCombat();
         CurrentPoisonSequence.Value = null;
         CurrentPoisonDamageCommand.Value = null;
+        CurrentTemporaryStrengthMutation.Value = null;
+        CurrentOwnedStrengthSource.Value = null;
     });
 
     private static void RecordPoisonDamageResults(
@@ -896,91 +1291,17 @@ public static class RunStatsRuntime
         }
     }
 
-    private static IReadOnlyList<AssistedOwnershipRecord> CaptureAssistedOwnership()
+    private static void DiscardLegacyAssistedOwnership(
+        IReadOnlyList<AssistedOwnershipRecord> records)
     {
-        var records = new List<AssistedOwnershipRecord>();
-        var combatState = GetLiveCombatState();
-        if (combatState is null)
-        {
-            return records.AsReadOnly();
-        }
-
-        foreach (var creature in combatState.Creatures)
-        {
-            if (!creature.CombatId.HasValue)
-            {
-                continue;
-            }
-
-            foreach (var power in creature.Powers)
-            {
-                AssistedPowerKind? kind = power switch
-                {
-                    VulnerablePower => AssistedPowerKind.Vulnerable,
-                    WeakPower => AssistedPowerKind.Weak,
-                    _ => null
-                };
-                if (!kind.HasValue)
-                {
-                    continue;
-                }
-
-                var contributor = ContributorLedger.Resolve(
-                    power,
-                    ResolvePlayer(power.Applier)?.NetId);
-                records.Add(new AssistedOwnershipRecord(
-                    creature.CombatId.Value,
-                    kind.Value,
-                    contributor.Resolution,
-                    contributor.PlayerNetId));
-            }
-        }
-
-        return records.AsReadOnly();
-    }
-
-    private static void ApplyAssistedOwnership(IReadOnlyList<AssistedOwnershipRecord> records)
-    {
-        ContributorLedger.Clear();
-        var combatState = GetLiveCombatState();
-        if (combatState is null)
+        if (records.Count == 0)
         {
             return;
         }
 
-        foreach (var creature in combatState.Creatures)
-        {
-            foreach (var power in creature.Powers)
-            {
-                if (power is VulnerablePower or WeakPower)
-                {
-                    ContributorLedger.SetResolution(power, ContributorResult.Unsupported);
-                }
-            }
-        }
-
-        foreach (var record in records)
-        {
-            var creature = combatState.GetCreature(record.OwnerCombatId);
-            var power = creature?.Powers.FirstOrDefault(candidate =>
-                record.PowerKind == AssistedPowerKind.Vulnerable
-                    ? candidate is VulnerablePower
-                    : candidate is WeakPower);
-            if (power is not null)
-            {
-                ContributorLedger.SetResolution(
-                    power,
-                    new ContributorResult(record.Resolution, record.ContributorNetId));
-            }
-        }
-    }
-
-    private static ICombatState? GetLiveCombatState()
-    {
-        var combatState = _activeRunState?.Players
-            .Select(player => player.Creature.CombatState)
-            .FirstOrDefault(state => state?.IsLiveCombat() == true);
-        return combatState;
+        RunStatsLog.Warn(
+            $"Ignored {records.Count} legacy assisted-ownership record(s) while restoring " +
+            "compatible accumulated totals; combat-only weighted attribution starts fresh.");
     }
 
     private static void TryObserveAssistedDamage(
@@ -1005,22 +1326,14 @@ public static class RunStatsRuntime
         }
 
         var power = powers[0];
-        var contributor = ContributorLedger.Resolve(power, ResolvePlayer(power.Applier)?.NetId);
-        if (!TryResolveTeammateContributor(
-                contributor,
-                attackerNetId,
-                DiagnosticKind.AmbiguousAssistedDamage,
-                out var contributorNetId))
-        {
-            return;
-        }
-
         var multiplier = power.ModifyDamageMultiplicative(target, modifiedDamage, props, dealer, cardSource);
         if (multiplier > 1m)
         {
+            scope.Track(power.Owner, AssistedEffectKind.Vulnerable);
             scope.Observations[target] = new DamageAssistObservation(
                 StatKind.AssistedDamage,
-                contributorNetId,
+                power.Owner,
+                attackerNetId,
                 modifiedDamage,
                 multiplier);
         }
@@ -1046,63 +1359,276 @@ public static class RunStatsRuntime
         }
 
         var power = powers[0];
-        var contributor = ContributorLedger.Resolve(power, ResolvePlayer(power.Applier)?.NetId);
-        if (!TryResolveTeammateContributor(
-                contributor,
-                protectedPlayerNetId,
-                DiagnosticKind.AmbiguousAssistedDamagePrevented,
-                out var contributorNetId))
-        {
-            return;
-        }
-
         var multiplier = power.ModifyDamageMultiplicative(target, modifiedDamage, props, dealer, cardSource);
         if (multiplier > 0m && multiplier < 1m)
         {
+            scope.Track(power.Owner, AssistedEffectKind.Weak);
             scope.Observations[target] = new DamageAssistObservation(
                 StatKind.AssistedDamagePrevented,
-                contributorNetId,
+                power.Owner,
+                protectedPlayerNetId,
                 modifiedDamage,
                 multiplier);
         }
     }
 
-    private static bool TryResolveTeammateContributor(
-        ContributorResult contributor,
-        ulong beneficiaryNetId,
-        DiagnosticKind ambiguousDiagnostic,
-        out ulong contributorNetId)
+    private static void TryObserveStrengthAssistedDamage(
+        DamageAssistScope scope,
+        IRunState runState,
+        ICombatState combatState,
+        Creature target,
+        Creature dealer,
+        ValueProp props,
+        CardModel? cardSource,
+        decimal modifiedDamage,
+        IReadOnlyList<AbstractModel> modifiers,
+        IReadOnlyList<VulnerablePower> vulnerablePowers)
     {
-        contributorNetId = 0;
-        if (contributor.Resolution == ContributorResolution.Ambiguous)
+        var events = StrengthImpactLedger.GetEvents(dealer);
+        if (events.Count == 0 || vulnerablePowers.Count > 1 ||
+            HasHpLossOrRedirectionOverride(runState, combatState))
         {
-            State.TryRecordDiagnostic(ambiguousDiagnostic);
-            return false;
+            return;
         }
 
-        if (!AssistedAttribution.TryGetTeammate(
-                contributor,
-                beneficiaryNetId,
-                out contributorNetId))
+        var strengthPowers = modifiers.OfType<StrengthPower>().Distinct().ToList();
+        var weakPowers = modifiers.OfType<WeakPower>().Distinct().ToList();
+        if (strengthPowers.Count != 1 || weakPowers.Count > 1)
         {
-            return false;
+            return;
         }
-        return true;
+
+        foreach (var modifier in modifiers.Distinct())
+        {
+            if (modifier is StrengthPower or WeakPower or VulnerablePower)
+            {
+                continue;
+            }
+
+            // Unknown additive modifiers are already part of the observed
+            // baseline. Unknown multiplicative stages cannot be removed exactly.
+            if (Overrides(modifier, DamageMultiplicativeMethod))
+            {
+                return;
+            }
+        }
+
+        var vulnerableMultiplier = 1m;
+        if (vulnerablePowers.Count == 1)
+        {
+            vulnerableMultiplier = vulnerablePowers[0].ModifyDamageMultiplicative(
+                target,
+                modifiedDamage,
+                props,
+                dealer,
+                cardSource);
+            if (vulnerableMultiplier <= 1m)
+            {
+                return;
+            }
+        }
+
+        var strengthDownstreamMultiplier = 1m;
+        if (weakPowers.Count == 1)
+        {
+            strengthDownstreamMultiplier = weakPowers[0].ModifyDamageMultiplicative(
+                target,
+                modifiedDamage,
+                props,
+                dealer,
+                cardSource);
+            if (strengthDownstreamMultiplier <= 0m || strengthDownstreamMultiplier >= 1m)
+            {
+                return;
+            }
+        }
+
+        scope.StrengthObservations[target] = new StrengthOutgoingDamageObservation(
+            dealer,
+            modifiedDamage,
+            vulnerableMultiplier,
+            strengthDownstreamMultiplier,
+            events.ToArray());
+    }
+
+    private static void TryObserveStrengthPreventedDamage(
+        DamageAssistScope scope,
+        IRunState runState,
+        ICombatState combatState,
+        Creature target,
+        Creature dealer,
+        ValueProp props,
+        CardModel? cardSource,
+        decimal modifiedDamage,
+        ulong protectedPlayerNetId,
+        IReadOnlyList<AbstractModel> modifiers,
+        IReadOnlyList<WeakPower> weakPowers,
+        decimal unmodifiedDamage)
+    {
+        var events = StrengthImpactLedger.GetEvents(dealer);
+        if (events.Count == 0 || weakPowers.Count > 1 ||
+            HasHpLossOrRedirectionOverride(runState, combatState))
+        {
+            return;
+        }
+
+        var strengthPowers = modifiers.OfType<StrengthPower>().Distinct().ToList();
+        var vulnerablePowers = modifiers.OfType<VulnerablePower>().Distinct().ToList();
+        if (strengthPowers.Count != 1 || vulnerablePowers.Count > 1)
+        {
+            return;
+        }
+
+        decimal? exactUnmodifiedDamage = null;
+        if (modifiedDamage == 0m)
+        {
+            if (unmodifiedDamage < 0m || modifiers
+                .Distinct()
+                .Any(modifier => modifier is not StrengthPower &&
+                                 Overrides(modifier, DamageAdditiveMethod)))
+            {
+                return;
+            }
+
+            exactUnmodifiedDamage = unmodifiedDamage;
+        }
+
+        foreach (var modifier in modifiers.Distinct())
+        {
+            if (modifier is StrengthPower or WeakPower or VulnerablePower)
+            {
+                continue;
+            }
+
+            if (Overrides(modifier, DamageMultiplicativeMethod))
+            {
+                return;
+            }
+        }
+
+        var weakMultiplier = 1m;
+        if (weakPowers.Count == 1)
+        {
+            weakMultiplier = weakPowers[0].ModifyDamageMultiplicative(
+                target,
+                modifiedDamage,
+                props,
+                dealer,
+                cardSource);
+            if (weakMultiplier <= 0m || weakMultiplier >= 1m)
+            {
+                return;
+            }
+        }
+
+        var strengthDownstreamMultiplier = 1m;
+        if (vulnerablePowers.Count == 1)
+        {
+            strengthDownstreamMultiplier = vulnerablePowers[0].ModifyDamageMultiplicative(
+                target,
+                modifiedDamage,
+                props,
+                dealer,
+                cardSource);
+            if (strengthDownstreamMultiplier <= 1m)
+            {
+                return;
+            }
+        }
+
+        scope.StrengthIncomingObservations[target] = new StrengthIncomingDamageObservation(
+            dealer,
+            modifiedDamage,
+            exactUnmodifiedDamage,
+            strengthPowers[0].Amount,
+            weakMultiplier,
+            strengthDownstreamMultiplier,
+            protectedPlayerNetId,
+            events.ToArray());
     }
 
     private static void RecordAssistedDamage(Creature target, DamageResult result)
     {
         var scope = CurrentDamageScope.Value;
-        if (scope is null || !scope.Observations.Remove(target, out var observation))
+        if (scope is null)
         {
             return;
         }
 
+        if (!scope.Observations.ContainsKey(target) &&
+            !scope.StrengthObservations.ContainsKey(target) &&
+            !scope.StrengthIncomingObservations.ContainsKey(target))
+        {
+            return;
+        }
+
+        var preHitBlock = checked(target.Block + result.BlockedDamage);
+        var preHitHp = checked(target.CurrentHp + result.UnblockedDamage);
+        if (scope.Observations.Remove(target, out var observation))
+        {
+            RecordWeakOrVulnerableAssist(
+                scope,
+                observation,
+                result,
+                preHitBlock,
+                preHitHp);
+        }
+
+        if (scope.StrengthObservations.Remove(target, out var strengthObservation) &&
+            StrengthDamageCalculator.TryCalculateOutgoing(
+                strengthObservation.ActualModifiedDamage,
+                strengthObservation.VulnerableMultiplier,
+                strengthObservation.StrengthDownstreamMultiplier,
+                preHitBlock,
+                preHitHp,
+                result.UnblockedDamage,
+                strengthObservation.Events,
+                out var calculation))
+        {
+            if (StrengthImpactLedger.TryAllocate(
+                    strengthObservation.Attacker,
+                    StrengthAssistDirection.OutgoingDamage,
+                    calculation.EligibilityPool,
+                    calculation.EventCapacities,
+                    out var allocation))
+            {
+                StrengthStats.Record(allocation, StatKind.AssistedDamage);
+            }
+        }
+
+        if (scope.StrengthIncomingObservations.Remove(target, out var incomingObservation) &&
+            StrengthDamageCalculator.TryCalculateIncoming(
+                incomingObservation.ActualModifiedDamage,
+                incomingObservation.ExactUnmodifiedDamage,
+                incomingObservation.CurrentStrength,
+                incomingObservation.WeakMultiplier,
+                incomingObservation.StrengthDownstreamMultiplier,
+                incomingObservation.ProtectedPlayerNetId,
+                incomingObservation.Events,
+                out var incomingCalculation))
+        {
+            if (StrengthImpactLedger.TryAllocate(
+                    incomingObservation.Attacker,
+                    StrengthAssistDirection.IncomingPrevention,
+                    incomingCalculation.EligibilityPool,
+                    incomingCalculation.EventCapacities,
+                    out var allocation))
+            {
+                StrengthStats.Record(allocation, StatKind.AssistedDamagePrevented);
+            }
+        }
+    }
+
+    private static void RecordWeakOrVulnerableAssist(
+        DamageAssistScope scope,
+        DamageAssistObservation observation,
+        DamageResult result,
+        int preHitBlock,
+        int preHitHp)
+    {
         long amount;
         if (observation.Stat == StatKind.AssistedDamage)
         {
-            var preHitBlock = checked(target.Block + result.BlockedDamage);
-            var preHitHp = checked(target.CurrentHp + result.UnblockedDamage);
             amount = AssistedDamageCalculator.DamageAdded(
                 observation.ActualModifiedDamage,
                 observation.ContributorMultiplier,
@@ -1119,10 +1645,45 @@ public static class RunStatsRuntime
 
         if (amount > 0)
         {
-            State.TryApply(StatMutation.Add(
-                observation.ContributorNetId,
-                observation.Stat,
-                amount));
+            if (observation.Stat == StatKind.AssistedDamage)
+            {
+                AssistedStats.RecordVulnerableAssist(
+                    observation.EffectOwner,
+                    amount,
+                    observation.BeneficiaryNetId,
+                    out _);
+            }
+            else
+            {
+                scope.WeakPreventionRows.Add(new WeakPreventionObservation(
+                    observation.EffectOwner,
+                    observation.BeneficiaryNetId,
+                    amount));
+            }
+        }
+    }
+
+    private static void RecordAggregatedWeakPrevention(DamageAssistScope scope)
+    {
+        var rowsByEnemy = new Dictionary<Creature, List<WeakPreventionRow>>(
+            ReferenceEqualityComparer.Instance);
+        foreach (var row in scope.WeakPreventionRows)
+        {
+            if (!rowsByEnemy.TryGetValue(row.EffectOwner, out var rows))
+            {
+                rows = new List<WeakPreventionRow>();
+                rowsByEnemy.Add(row.EffectOwner, rows);
+            }
+
+            rows.Add(new WeakPreventionRow(row.ProtectedPlayerNetId, row.Prevention));
+        }
+
+        foreach (var entry in rowsByEnemy)
+        {
+            AssistedStats.RecordWeakPreventionCommand(
+                entry.Key,
+                entry.Value,
+                out _);
         }
     }
 

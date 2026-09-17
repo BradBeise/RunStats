@@ -24,11 +24,11 @@ internal static class PowerContributionPatch
         (int Amount, ulong? Contributor) __state,
         ref Task<int> __result)
     {
-        __result = ObserveCompletedIncrease(__result, power, applier, __state.Amount);
+        __result = ObserveCompletedChange(__result, power, applier, __state.Amount);
         RunStatsRuntime.EndDoomCardApplication(__state.Contributor);
     }
 
-    private static async Task<int> ObserveCompletedIncrease(
+    private static async Task<int> ObserveCompletedChange(
         Task<int> original,
         PowerModel power,
         Creature? applier,
@@ -36,11 +36,6 @@ internal static class PowerContributionPatch
     {
         var currentAmount = await original;
         RunStatsRuntime.OnPowerAmountChanged(power, applier, previousAmount, currentAmount);
-        if (currentAmount > previousAmount)
-        {
-            RunStatsRuntime.OnPowerContribution(power, applier);
-        }
-
         return currentAmount;
     }
 }
