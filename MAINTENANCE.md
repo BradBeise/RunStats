@@ -159,17 +159,17 @@ The user could not recreate the four-player scenario after installation and acce
 
 ### Prepared v0.3.1 Workshop package
 
-Prepared 2026-09-17 after explicit Strength Phase 9 approval. Project/package version is `0.3.1`, assembly version is `0.3.1.0`, snapshot/sidecar schema remains 4, `affects_gameplay` remains `false`, and the Release assembly contains no custom network-message implementation. Debug and Release builds have zero warnings/errors and all 142 tests pass in both configurations.
+Prepared 2026-09-17 after explicit Strength Phase 9 approval and refreshed 2026-09-18 with the initialization hotfix. Project/package version is `0.3.1`, assembly version is `0.3.1.0`, snapshot/sidecar schema remains 4, `affects_gameplay` remains `false`, and the Release assembly contains no custom network-message implementation. Debug and Release builds have zero warnings/errors and all 143 tests pass in both configurations.
 
 The published v0.3.0 package was preserved first under `workshop\RunStats\rollback\v0.3.0`. `mod_id.txt` remains `3797791393`, the thumbnail remains 735,516 bytes, and the uploader content contains exactly these verified v0.3.1 files:
 
 | File | SHA-256 |
 | --- | --- |
-| `RunStats.dll` | `09B82B9C9F84DD08FED6E977C5BB2E249C80E62336061FBF1128E58945DC6B7E` |
+| `RunStats.dll` | `BD82B7706A408704969724F14988699044FB54BB7944359D5C4BC9E706D9C5FA` |
 | `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
 | `mod_manifest.json` | `322D17AF10E56DBCED064ABE3812BE097890364A96FBD6DA623CF403077C840B` |
 
-The visible `Assisted Damage Prevented` row was renamed to `Damage Prevented` before commit; the internal persisted identifier remains unchanged. The local Release installation is refreshed from the final package before commit. No Steam uploader command was run and no visibility/publication state changed.
+The visible `Assisted Damage Prevented` row was renamed to `Damage Prevented` before commit; the internal persisted identifier remains unchanged. The 2026-09-18 hotfix updates the `Hook.ModifyDamage` Harmony prefix to bind the game's `damage` parameter (instead of the obsolete `amount` name), preventing `PatchAll()` from aborting and restoring RunStats initialization and its top-right menu. A regression test locks that parameter contract. The local Release installation is refreshed from the final package before commit. No Steam uploader command was run and no visibility/publication state changed.
 
 ## Future change workflow
 

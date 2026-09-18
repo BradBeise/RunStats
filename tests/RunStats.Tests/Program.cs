@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json.Nodes;
@@ -93,6 +94,7 @@ internal static class Program
             ("Sidecars round-trip and validate assisted ownership", SidecarAssistedOwnershipIsValidated),
             ("Persistence restores totals but writes no combat ownership", PersistenceDropsLegacyCombatOwnership),
             ("Compiled RunStats assembly contains no custom network messages", AssemblyContainsNoCustomNetworkMessages),
+            ("Harmony damage prefix binds the game's damage parameter", DamagePatchUsesDamageParameter),
             ("Poison applications preserve cycle ownership", PoisonApplicationsPreserveCycleOwnership),
             ("Two-player poison fractions alternate fairly", TwoPlayerPoisonFractionsAlternate),
             ("Three-player poison remainders rotate over three triggers", ThreePlayerPoisonFractionsRotate),
@@ -1420,6 +1422,18 @@ internal static class Program
         }
 
         Equal(0, implementations);
+    }
+
+    private static void DamagePatchUsesDamageParameter()
+    {
+        var runStatsAssembly = typeof(RunStatsState).Assembly;
+        var patchType = runStatsAssembly.GetType(
+            "RunStats.Integration.Patches.ModifyDamageAssistPatch",
+            throwOnError: true)!;
+        var prefix = patchType.GetMethod(
+            "Prefix",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Equal("damage", prefix.GetParameters()[0].Name);
     }
 
     private static void PoisonApplicationsPreserveCycleOwnership()

@@ -13,8 +13,8 @@ namespace RunStats.Integration.Patches;
 internal static class ModifyDamageAssistPatch
 {
     [HarmonyPrefix]
-    private static void Prefix(decimal amount, out decimal __state) =>
-        __state = amount;
+    private static void Prefix(decimal damage, out decimal __state) =>
+        __state = damage;
 
     [HarmonyPostfix]
     private static void Postfix(
