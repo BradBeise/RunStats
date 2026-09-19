@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text.Json.Nodes;
 using System.Threading;
 using RunStats.Models;
@@ -89,6 +92,9 @@ internal static class Program
             ("Successful vanilla save confirmation promotes one checkpoint", SaveConfirmationPromotesCheckpoint),
             ("Debounced mutation checkpoints remain pending only", DebouncedCheckpointsRemainPending),
             ("Sidecars round-trip and validate assisted ownership", SidecarAssistedOwnershipIsValidated),
+            ("Persistence restores totals but writes no combat ownership", PersistenceDropsLegacyCombatOwnership),
+            ("Compiled RunStats assembly contains no custom network messages", AssemblyContainsNoCustomNetworkMessages),
+            ("Harmony damage prefix binds the game's damage parameter", DamagePatchUsesDamageParameter),
             ("Poison applications preserve cycle ownership", PoisonApplicationsPreserveCycleOwnership),
             ("Two-player poison fractions alternate fairly", TwoPlayerPoisonFractionsAlternate),
             ("Three-player poison remainders rotate over three triggers", ThreePlayerPoisonFractionsRotate),
@@ -106,7 +112,59 @@ internal static class Program
             ("Doom kill splits actual HP loss and credits largest applier", DoomKillSplitsDamageAndKill),
             ("Doom ties use damage then deterministic selection", DoomKillTieBreaks),
             ("Unattributed Doom stays in the HP-loss denominator", UnattributedDoomDoesNotInflateDamage),
-            ("Schema-two sidecars migrate Doom to zero", SidecarSchemaTwoMigratesDoom)
+            ("Schema-two sidecars migrate Doom to zero", SidecarSchemaTwoMigratesDoom),
+            ("Assisted contributions persist until zero refresh", AssistedContributionsPersistUntilZeroRefresh),
+            ("Assisted remainder follows reverse application order", AssistedRemainderUsesReverseApplicationOrder),
+            ("Assisted allocation conserves one-to-four-player shares", AssistedAllocationIsExact),
+            ("Unattributed and self-assisted shares remain uncredited", AssistedAllocationDiscardsUncreditedShares),
+            ("Assisted enemy cycles and target rows stay independent", AssistedCyclesAndTargetsAreIndependent),
+            ("Malformed assisted observations fail atomically", AssistedContributionFailuresAreAtomic),
+            ("Assisted runtime tracker observes every amount transition", AssistedTrackerObservesPowerTransitions),
+            ("Weak and Vulnerable runtime cycles remain isolated", AssistedTrackerKeepsEffectsAndEnemiesIsolated),
+            ("Proportional Vulnerable follows the approved example", ProportionalVulnerableFollowsApprovedExample),
+            ("Proportional Vulnerable discards self and unknown shares", ProportionalVulnerableDiscardsUncreditedShares),
+            ("Proportional Vulnerable supports one to four contributors", ProportionalVulnerableSupportsOneToFourContributors),
+            ("Proportional Vulnerable preserves damage boundaries and lethal order", ProportionalVulnerablePreservesDamageBoundaries),
+            ("Four-target Weak prevention uses one continuous cycle", FourTargetWeakUsesContinuousCycle),
+            ("Weak prevention supports one to four contributors and targets", WeakSupportsOneToFourContributorsAndTargets),
+            ("Weak self-prevention is discarded per target", WeakSelfPreventionIsDiscardedPerTarget),
+            ("Weak prevention survives final-event cycle cleanup", WeakPreventionSurvivesFinalEventCleanup),
+            ("Weak self-split fractions carry across attacks", WeakSelfSplitFractionsCarryAcrossAttacks),
+            ("Weak rounds once after summing every target", WeakRoundsOnceAfterTargetSum),
+            ("Strength events are ordered, signed, and exclude self", StrengthEventsAreOrderedAndExcludeSelf),
+            ("Strength events remain isolated by affected creature", StrengthEventsRemainTargetIsolated),
+            ("Strength event lifetimes follow turns and restoration sources", StrengthEventLifetimesAreExact),
+            ("Partial Strength restoration changes only its event", StrengthPartialRestorationIsExact),
+            ("Outgoing Strength allocation restarts from earliest events", OutgoingStrengthAllocationRestartsByEvent),
+            ("Harmful Strength allocations are applied before helpful ones", HarmfulStrengthAllocationComesFirst),
+            ("Incoming Strength reverses event signs and preserves conservation", IncomingStrengthAllocationIsSigned),
+            ("Malformed Strength allocation fails closed", StrengthAllocationFailuresAreAtomic),
+            ("Player action snapshots assign reactive Strength to the actor", StrengthActionsOwnReactiveChanges),
+            ("Strength source provenance overrides a later action owner", StrengthDelayedSourceOwnershipWins),
+            ("Unknown and self Strength observations remain uncredited", StrengthUnknownAndSelfChangesAreIgnored),
+            ("Temporary Strength restoration expires exact source events", StrengthTemporaryRestorationIsSourceBound),
+            ("Ambiguous partial temporary restoration resets its target", StrengthAmbiguousRestorationFailsClosed),
+            ("Strength action mismatch and cancellation commit nothing", StrengthActionFailuresCommitNothing),
+            ("Transient Strength changes create no surviving event", StrengthTransientActionChangesAreIgnored),
+            ("Outgoing Strength matches corrected Block and lethal examples", StrengthOutgoingMatchesCorrectedExamples),
+            ("Outgoing Strength and Vulnerable layers never overlap", StrengthOutgoingSeparatesVulnerable),
+            ("Outgoing harmful Strength is allocated before helpful Strength", StrengthOutgoingHarmfulComesFirst),
+            ("Outgoing Strength preserves Weak and integer rounding", StrengthOutgoingPreservesWeakRounding),
+            ("Outgoing Strength restarts allocation on every resolved hit", StrengthOutgoingRestartsEveryHit),
+            ("Ambiguous outgoing Strength counterfactuals fail closed", StrengthOutgoingFailuresAreAtomic),
+            ("Incoming Strength prevention uses pre-Block damage", StrengthIncomingUsesPreBlockDamage),
+            ("Zero-clamped multi-hit Strength prevention counts every teammate hit", StrengthIncomingZeroClampCountsEveryHit),
+            ("Incoming Strength excludes the protected player's own event", StrengthIncomingExcludesSelfProtection),
+            ("Incoming harmful Strength is allocated before helpful Strength", StrengthIncomingHarmfulComesFirst),
+            ("Incoming Strength and Weak layers never overlap", StrengthIncomingSeparatesWeak),
+            ("Incoming Strength preserves downstream Vulnerable rounding", StrengthIncomingPreservesVulnerableRounding),
+            ("Incoming Strength restarts per target and fails closed", StrengthIncomingRestartsAndFailsClosed),
+            ("Only assisted statistics accept signed mutations", SignedAssistedMutationsAreScoped),
+            ("Strength award batches are atomic across players", StrengthAwardBatchesAreAtomic),
+            ("Schema-two sidecars migrate signed fields safely", SchemaTwoSidecarsMigrateSafely),
+            ("Schema-four sidecars round-trip signed assisted totals", SchemaFourRoundTripsSignedTotals),
+            ("Signed assisted totals render for players and team", SignedAssistedTotalsRenderCorrectly),
+            ("Signed Strength awards remain peer-local and deterministic", SignedStrengthAwardsAreDeterministic)
         };
 
         var failures = 0;
@@ -967,7 +1025,7 @@ internal static class Program
         state.TryApply(StatMutation.Add(10, StatKind.DamageDealt, 9));
         var snapshot = state.CaptureSnapshot();
         var root = JsonNode.Parse(SidecarSnapshotCodec.Serialize(snapshot, 55))!.AsObject();
-        root["schema_version"] = SidecarSnapshotCodec.PreviousSchemaVersion;
+        root["schema_version"] = SidecarSnapshotCodec.LegacySchemaVersion;
         root["snapshot_schema_version"] = 1;
 
         foreach (var player in root["players"]!.AsArray())
@@ -1032,7 +1090,10 @@ internal static class Program
         Equal(
             SidecarLoadResult.SchemaMismatch,
             SidecarSnapshotCodec.TryDeserialize(
-                json.Replace("\"schema_version\": 3", "\"schema_version\": 99", StringComparison.Ordinal),
+                json.Replace(
+                    $"\"schema_version\": {SidecarSnapshotCodec.CurrentSchemaVersion}",
+                    "\"schema_version\": 99",
+                    StringComparison.Ordinal),
                 snapshot.Identity!,
                 50,
                 out _));
@@ -1279,6 +1340,100 @@ internal static class Program
                 800,
                 out _,
                 out _));
+    }
+
+    private static void PersistenceDropsLegacyCombatOwnership()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            var store = new RunStatsSidecarStore(directory);
+            var saved = CreateState(10, 20);
+            saved.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, 7));
+            var legacyOwnership = new[]
+            {
+                new AssistedOwnershipRecord(
+                    4,
+                    AssistedPowerKind.Vulnerable,
+                    ContributorResolution.Unique,
+                    10)
+            };
+            store.WriteActive(saved.CaptureSnapshot(), 800, legacyOwnership);
+
+            IReadOnlyList<AssistedOwnershipRecord>? observedLegacy = null;
+            var restored = CreateState(10, 20);
+            using var coordinator = new RunStatsPersistenceCoordinator(
+                restored,
+                () => store,
+                (_, exception) => throw exception,
+                TimeSpan.FromSeconds(5),
+                onLegacyAssistedOwnership: records => observedLegacy = records);
+            Equal(
+                SidecarLoadResult.Loaded,
+                coordinator.Restore(
+                    restored.CaptureSnapshot().Identity!,
+                    800,
+                    new VanillaStatBaseline()));
+            Equal(7L, restored.CaptureSnapshot().Players[10]
+                .GetTotal(StatKind.AssistedDamage));
+            Equal(1, observedLegacy?.Count ?? 0);
+
+            coordinator.PrepareVanillaSave(900, RunMode.Multiplayer);
+            coordinator.ConfirmVanillaSave();
+            var json = File.ReadAllText(store.GetActivePath(RunMode.Multiplayer));
+            Equal(
+                SidecarLoadResult.Loaded,
+                SidecarSnapshotCodec.TryDeserialize(
+                    json,
+                    restored.CaptureSnapshot().Identity!,
+                    900,
+                    out var roundTripped,
+                    out var rewrittenOwnership));
+            Equal(RunStatsSnapshot.CurrentSchemaVersion, roundTripped!.SchemaVersion);
+            Equal(0, rewrittenOwnership.Count);
+            Equal(7L, roundTripped.Players[10].GetTotal(StatKind.AssistedDamage));
+        });
+    }
+
+    private static void AssemblyContainsNoCustomNetworkMessages()
+    {
+        using var stream = File.OpenRead(typeof(RunStatsState).Assembly.Location);
+        using var portableExecutable = new PEReader(stream);
+        var metadata = portableExecutable.GetMetadataReader();
+        var implementations = 0;
+        foreach (var typeHandle in metadata.TypeDefinitions)
+        {
+            var type = metadata.GetTypeDefinition(typeHandle);
+            foreach (var implementationHandle in type.GetInterfaceImplementations())
+            {
+                var interfaceHandle = metadata
+                    .GetInterfaceImplementation(implementationHandle)
+                    .Interface;
+                if (interfaceHandle.Kind != HandleKind.TypeReference)
+                {
+                    continue;
+                }
+
+                var reference = metadata.GetTypeReference((TypeReferenceHandle)interfaceHandle);
+                if (metadata.GetString(reference.Name) == "INetMessage")
+                {
+                    implementations++;
+                }
+            }
+        }
+
+        Equal(0, implementations);
+    }
+
+    private static void DamagePatchUsesDamageParameter()
+    {
+        var runStatsAssembly = typeof(RunStatsState).Assembly;
+        var patchType = runStatsAssembly.GetType(
+            "RunStats.Integration.Patches.ModifyDamageAssistPatch",
+            throwOnError: true)!;
+        var prefix = patchType.GetMethod(
+            "Prefix",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Equal("damage", prefix.GetParameters()[0].Name);
     }
 
     private static void PoisonApplicationsPreserveCycleOwnership()
@@ -1660,6 +1815,1392 @@ internal static class Program
             new AccelerantSponsorLedger());
     }
 
+    private static void AssistedContributionsPersistUntilZeroRefresh()
+    {
+        var ledger = new AssistedContributionLedger();
+        var enemy = new object();
+
+        var first = ledger.ObserveAmount(enemy, 0, 2, 10);
+        var second = ledger.ObserveAmount(enemy, 2, 3, 20);
+        var decay = ledger.ObserveAmount(enemy, 3, 2, null);
+        True(first.Accepted && second.Accepted && decay.Accepted);
+        Equal(2L, first.CreditedContribution);
+        Equal(1L, second.CreditedContribution);
+        Equal(0L, decay.UnattributedContribution);
+
+        True(ledger.TryAllocate(enemy, 3, null, out var beforeReset));
+        Equal(2L, beforeReset.PlayerAwards[10]);
+        Equal(1L, beforeReset.PlayerAwards[20]);
+
+        var reset = ledger.ObserveAmount(enemy, 2, 0, null);
+        True(reset.Accepted && reset.CycleReset);
+        True(!ledger.TryAllocate(enemy, 1, null, out _));
+
+        var refreshed = ledger.ObserveAmount(enemy, 0, 4, 20);
+        True(refreshed.Accepted);
+        True(ledger.TryAllocate(enemy, 4, null, out var afterReset));
+        Equal(1, afterReset.PlayerAwards.Count);
+        Equal(4L, afterReset.PlayerAwards[20]);
+    }
+
+    private static void AssistedRemainderUsesReverseApplicationOrder()
+    {
+        var ledger = new AssistedContributionLedger();
+        var enemy = new object();
+        ledger.ObserveAmount(enemy, 0, 1, 10);
+        ledger.ObserveAmount(enemy, 1, 3, 20);
+
+        True(ledger.TryAllocate(enemy, 5, null, out var first));
+        Equal(1L, first.PlayerAwards[10]);
+        Equal(4L, first.PlayerAwards[20]);
+
+        True(ledger.TryAllocate(enemy, 5, null, out var second));
+        Equal(2L, second.PlayerAwards[10]);
+        Equal(3L, second.PlayerAwards[20]);
+
+        ledger.ObserveAmount(enemy, 3, 5, 10);
+        True(ledger.TryAllocate(enemy, 5, null, out var exact));
+        Equal(3L, exact.PlayerAwards[10]);
+        Equal(2L, exact.PlayerAwards[20]);
+
+        var equalLedger = new AssistedContributionLedger();
+        var equalEnemy = new object();
+        for (ulong player = 1; player <= 4; player++)
+        {
+            equalLedger.ObserveAmount(equalEnemy, (long)player - 1, (long)player, player);
+        }
+
+        var recipients = new List<ulong>();
+        for (var index = 0; index < 4; index++)
+        {
+            True(equalLedger.TryAllocate(equalEnemy, 1, null, out var allocation));
+            recipients.Add(allocation.PlayerAwards.Single(entry => entry.Value == 1).Key);
+        }
+        SequenceEqual(new ulong[] { 4, 3, 2, 1 }, recipients);
+
+        equalLedger.ObserveAmount(equalEnemy, 4, 5, 2);
+        True(equalLedger.TryAllocate(equalEnemy, 1, null, out var restarted));
+        Equal(1L, restarted.PlayerAwards[2]);
+    }
+
+    private static void AssistedAllocationIsExact()
+    {
+        for (var contributorCount = 1; contributorCount <= 4; contributorCount++)
+        {
+            var ledger = new AssistedContributionLedger();
+            var enemy = new object();
+            long amount = 0;
+            for (ulong player = 1; player <= (ulong)contributorCount; player++)
+            {
+                var next = checked(amount + (long)player);
+                ledger.ObserveAmount(enemy, amount, next, player);
+                amount = next;
+            }
+
+            True(ledger.TryAllocate(enemy, 17, null, out var allocation));
+            Equal(contributorCount, allocation.PlayerAwards.Count);
+            Equal(17L, allocation.CreditedAward + allocation.UnattributedAward + allocation.DiscardedSelfAward);
+            foreach (var award in allocation.PlayerAwards.Values)
+            {
+                True(award >= 0);
+            }
+        }
+    }
+
+    private static void AssistedAllocationDiscardsUncreditedShares()
+    {
+        var ledger = new AssistedContributionLedger();
+        var enemy = new object();
+        ledger.ObserveAmount(enemy, 0, 1, null);
+        ledger.ObserveAmount(enemy, 1, 2, 10);
+        ledger.ObserveAmount(enemy, 2, 4, 20);
+
+        True(ledger.TryAllocate(enemy, 5, 10, out var first));
+        Equal(3L, first.PlayerAwards[20]);
+        Equal(1L, first.UnattributedAward);
+        Equal(1L, first.DiscardedSelfAward);
+        Equal(5L, first.CreditedAward + first.UnattributedAward + first.DiscardedSelfAward);
+
+        True(ledger.TryAllocate(enemy, 5, null, out var second));
+        Equal(2L, second.PlayerAwards[10]);
+        Equal(2L, second.PlayerAwards[20]);
+        Equal(1L, second.UnattributedAward);
+    }
+
+    private static void AssistedCyclesAndTargetsAreIndependent()
+    {
+        var ledger = new AssistedContributionLedger();
+        var firstEnemy = new object();
+        var secondEnemy = new object();
+        ledger.ObserveAmount(firstEnemy, 0, 1, 10);
+        ledger.ObserveAmount(firstEnemy, 1, 2, 20);
+        ledger.ObserveAmount(secondEnemy, 0, 3, 30);
+
+        True(ledger.TryAllocate(firstEnemy, 3, 10, out var firstTarget));
+        Equal(2L, firstTarget.PlayerAwards[20]);
+        Equal(1L, firstTarget.DiscardedSelfAward);
+
+        True(ledger.TryAllocate(firstEnemy, 3, 20, out var secondTarget));
+        Equal(2L, secondTarget.PlayerAwards[10]);
+        Equal(1L, secondTarget.DiscardedSelfAward);
+
+        True(ledger.TryAllocate(secondEnemy, 9, null, out var independent));
+        Equal(9L, independent.PlayerAwards[30]);
+    }
+
+    private static void AssistedContributionFailuresAreAtomic()
+    {
+        var ledger = new AssistedContributionLedger();
+        var enemy = new object();
+        True(ledger.ObserveAmount(enemy, 0, long.MaxValue, 10).Accepted);
+        True(ledger.ObserveAmount(enemy, long.MaxValue, 1, null).Accepted);
+
+        var overflow = ledger.ObserveAmount(enemy, 1, long.MaxValue, 10);
+        True(!overflow.Accepted);
+        var mismatch = ledger.ObserveAmount(enemy, 7, 8, 20);
+        True(!mismatch.Accepted);
+        var mismatchedReset = ledger.ObserveAmount(enemy, 7, 0, null);
+        True(!mismatchedReset.Accepted);
+        True(ledger.ObserveAmount(enemy, 1, 2, 20).Accepted);
+
+        True(!ledger.TryAllocate(enemy, -1, null, out _));
+        True(ledger.TryAllocate(enemy, 1, null, out var allocation));
+        Equal(1L, allocation.CreditedAward);
+    }
+
+    private static void AssistedTrackerObservesPowerTransitions()
+    {
+        var tracker = new AssistedContributionTracker();
+        var enemy = new object();
+
+        var created = tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 0, 2, 10);
+        var stacked = tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 2, 5, 20);
+        var modified = tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 5, 6, 10);
+        var decreased = tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 6, 3, null);
+        var unattributed = tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 3, 5, null);
+
+        Equal(2L, created.CreditedContribution);
+        Equal(3L, stacked.CreditedContribution);
+        Equal(1L, modified.CreditedContribution);
+        Equal(0L, decreased.CreditedContribution);
+        Equal(2L, unattributed.UnattributedContribution);
+        Equal(ContributorResolution.Ambiguous,
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, enemy).Resolution);
+
+        var zeroed = tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 5, 0, null);
+        True(zeroed.Accepted && zeroed.CycleReset);
+        Equal(ContributorResolution.Unsupported,
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, enemy).Resolution);
+
+        tracker.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 0, 4, 20);
+        Equal(ContributorResult.Unique(20),
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, enemy));
+        True(tracker.ResetCycle(AssistedEffectKind.Vulnerable, enemy));
+        Equal(ContributorResolution.Unsupported,
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, enemy).Resolution);
+    }
+
+    private static void AssistedTrackerKeepsEffectsAndEnemiesIsolated()
+    {
+        var tracker = new AssistedContributionTracker();
+        var firstEnemy = new object();
+        var secondEnemy = new object();
+        tracker.ObserveAmount(AssistedEffectKind.Vulnerable, firstEnemy, 0, 2, 10);
+        tracker.ObserveAmount(AssistedEffectKind.Weak, firstEnemy, 0, 3, 20);
+        tracker.ObserveAmount(AssistedEffectKind.Vulnerable, secondEnemy, 0, 4, 30);
+
+        Equal(ContributorResult.Unique(10),
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, firstEnemy));
+        Equal(ContributorResult.Unique(20),
+            tracker.ResolveContributor(AssistedEffectKind.Weak, firstEnemy));
+        Equal(ContributorResult.Unique(30),
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, secondEnemy));
+
+        tracker.ResetCycle(AssistedEffectKind.Vulnerable, firstEnemy);
+        Equal(ContributorResolution.Unsupported,
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, firstEnemy).Resolution);
+        Equal(ContributorResult.Unique(20),
+            tracker.ResolveContributor(AssistedEffectKind.Weak, firstEnemy));
+        Equal(ContributorResult.Unique(30),
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, secondEnemy));
+
+        tracker.ResetCombat();
+        Equal(ContributorResolution.Unsupported,
+            tracker.ResolveContributor(AssistedEffectKind.Weak, firstEnemy).Resolution);
+        Equal(ContributorResolution.Unsupported,
+            tracker.ResolveContributor(AssistedEffectKind.Vulnerable, secondEnemy).Resolution);
+    }
+
+    private static void ProportionalVulnerableFollowsApprovedExample()
+    {
+        var state = CreateState(10, 20, 30);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 0, 1, 10);
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 1, 3, 20);
+
+        True(assisted.RecordVulnerableAssist(enemy, 5, 30, out var first));
+        Equal(1L, first.PlayerAwards[10]);
+        Equal(4L, first.PlayerAwards[20]);
+
+        True(assisted.RecordVulnerableAssist(enemy, 5, 30, out var second));
+        Equal(2L, second.PlayerAwards[10]);
+        Equal(3L, second.PlayerAwards[20]);
+
+        var snapshot = state.CaptureSnapshot();
+        Equal(3L, snapshot.Players[10].GetTotal(StatKind.AssistedDamage));
+        Equal(7L, snapshot.Players[20].GetTotal(StatKind.AssistedDamage));
+        Equal(0L, snapshot.Players[30].GetTotal(StatKind.AssistedDamage));
+    }
+
+    private static void ProportionalVulnerableDiscardsUncreditedShares()
+    {
+        var state = CreateState(10, 20);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 0, 1, null);
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 1, 2, 10);
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 2, 4, 20);
+
+        True(assisted.RecordVulnerableAssist(enemy, 5, 10, out var allocation));
+        Equal(3L, allocation.PlayerAwards[20]);
+        Equal(1L, allocation.UnattributedAward);
+        Equal(1L, allocation.DiscardedSelfAward);
+        var snapshot = state.CaptureSnapshot();
+        Equal(0L, snapshot.Players[10].GetTotal(StatKind.AssistedDamage));
+        Equal(3L, snapshot.Players[20].GetTotal(StatKind.AssistedDamage));
+    }
+
+    private static void ProportionalVulnerableSupportsOneToFourContributors()
+    {
+        for (var contributorCount = 1; contributorCount <= 4; contributorCount++)
+        {
+            var playerIds = Enumerable.Range(1, contributorCount)
+                .Select(value => (ulong)value)
+                .ToArray();
+            var state = CreateState(playerIds);
+            var contributions = new AssistedContributionTracker();
+            var assisted = new AssistedStatTracker(state, contributions);
+            var enemy = new object();
+            for (var index = 0; index < contributorCount; index++)
+            {
+                contributions.ObserveAmount(
+                    AssistedEffectKind.Vulnerable,
+                    enemy,
+                    index,
+                    index + 1,
+                    playerIds[index]);
+            }
+
+            True(assisted.RecordVulnerableAssist(enemy, 7, playerIds[0], out var allocation));
+            Equal(7L,
+                allocation.CreditedAward +
+                allocation.UnattributedAward +
+                allocation.DiscardedSelfAward);
+            var creditedTotal = state.CaptureSnapshot().Players.Values.Sum(
+                player => player.GetTotal(StatKind.AssistedDamage));
+            Equal(allocation.CreditedAward, creditedTotal);
+        }
+    }
+
+    private static void ProportionalVulnerablePreservesDamageBoundaries()
+    {
+        var state = CreateState(10, 20, 30);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 0, 1, 10);
+        contributions.ObserveAmount(AssistedEffectKind.Vulnerable, enemy, 1, 3, 20);
+
+        var blockLimited = AssistedDamageCalculator.DamageAdded(15m, 1.5m, 12, 50, 3);
+        Equal(3L, blockLimited);
+        True(assisted.RecordVulnerableAssist(enemy, blockLimited, 30, out _));
+
+        var overkill = AssistedDamageCalculator.DamageAdded(15m, 1.5m, 0, 4, 4);
+        Equal(0L, overkill);
+
+        var lethal = AssistedDamageCalculator.DamageAdded(15m, 1.5m, 0, 12, 12);
+        Equal(2L, lethal);
+        True(assisted.RecordVulnerableAssist(enemy, lethal, 30, out var lethalAllocation));
+        Equal(2L, lethalAllocation.PlayerAwards[20]);
+        contributions.ResetCycle(AssistedEffectKind.Vulnerable, enemy);
+
+        var snapshot = state.CaptureSnapshot();
+        Equal(1L, snapshot.Players[10].GetTotal(StatKind.AssistedDamage));
+        Equal(4L, snapshot.Players[20].GetTotal(StatKind.AssistedDamage));
+        True(!assisted.RecordVulnerableAssist(enemy, 1, 30, out _));
+    }
+
+    private static void FourTargetWeakUsesContinuousCycle()
+    {
+        var state = CreateState(10, 20, 30, 40);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 0, 2, 10);
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 2, 3, 20);
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 3, 4, 30);
+
+        var perTarget = AssistedDamageCalculator.DamagePrevented(7.5m, 0.75m);
+        Equal(3L, perTarget);
+        var rows = new List<WeakPreventionRow>();
+        foreach (var target in new ulong[] { 10, 20, 30, 40 })
+        {
+            rows.Add(new WeakPreventionRow(target, perTarget));
+        }
+        True(assisted.RecordWeakPreventionCommand(enemy, rows, out var allocation));
+
+        Equal(12L,
+            allocation.CreditedAward +
+            allocation.UnattributedAward +
+            allocation.DiscardedSelfAward);
+        var snapshot = state.CaptureSnapshot();
+        Equal(5L, snapshot.Players[10].GetTotal(StatKind.AssistedDamagePrevented));
+        Equal(3L, snapshot.Players[20].GetTotal(StatKind.AssistedDamagePrevented));
+        Equal(3L, snapshot.Players[30].GetTotal(StatKind.AssistedDamagePrevented));
+        Equal(0L, snapshot.Players[40].GetTotal(StatKind.AssistedDamagePrevented));
+    }
+
+    private static void WeakSupportsOneToFourContributorsAndTargets()
+    {
+        for (var contributorCount = 1; contributorCount <= 4; contributorCount++)
+        {
+            for (var targetCount = 1; targetCount <= 4; targetCount++)
+            {
+                var state = CreateState(1, 2, 3, 4);
+                var contributions = new AssistedContributionTracker();
+                var assisted = new AssistedStatTracker(state, contributions);
+                var enemy = new object();
+                for (var index = 0; index < contributorCount; index++)
+                {
+                    contributions.ObserveAmount(
+                        AssistedEffectKind.Weak,
+                        enemy,
+                        index,
+                        index + 1,
+                        (ulong)index + 1);
+                }
+
+                var rows = new List<WeakPreventionRow>();
+                for (var target = 1; target <= targetCount; target++)
+                {
+                    rows.Add(new WeakPreventionRow((ulong)target, 3));
+                }
+                True(assisted.RecordWeakPreventionCommand(enemy, rows, out var allocation));
+
+                Equal(3L * targetCount,
+                    allocation.CreditedAward +
+                    allocation.UnattributedAward +
+                    allocation.DiscardedSelfAward);
+                Equal(allocation.CreditedAward, state.CaptureSnapshot().Players.Values.Sum(
+                    player => player.GetTotal(StatKind.AssistedDamagePrevented)));
+            }
+        }
+    }
+
+    private static void WeakSelfPreventionIsDiscardedPerTarget()
+    {
+        var state = CreateState(10, 20);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 0, 2, 10);
+
+        True(assisted.RecordWeakPreventionCommand(
+            enemy,
+            new[] { new WeakPreventionRow(10, 3) },
+            out var selfRow));
+        Equal(3L, selfRow.DiscardedSelfAward);
+        Equal(0L, selfRow.CreditedAward);
+
+        True(assisted.RecordWeakPreventionCommand(
+            enemy,
+            new[] { new WeakPreventionRow(20, 3) },
+            out var teammateRow));
+        Equal(0L, teammateRow.DiscardedSelfAward);
+        Equal(3L, teammateRow.PlayerAwards[10]);
+        Equal(3L, state.CaptureSnapshot().Players[10]
+            .GetTotal(StatKind.AssistedDamagePrevented));
+    }
+
+    private static void WeakPreventionSurvivesFinalEventCleanup()
+    {
+        var state = CreateState(10, 20);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 0, 1, 10);
+
+        var lethalTargetPrevention = AssistedDamageCalculator.DamagePrevented(7.5m, 0.75m);
+        True(assisted.RecordWeakPreventionCommand(
+            enemy,
+            new[] { new WeakPreventionRow(20, lethalTargetPrevention) },
+            out _));
+        contributions.ResetCycle(AssistedEffectKind.Weak, enemy);
+
+        Equal(3L, state.CaptureSnapshot().Players[10]
+            .GetTotal(StatKind.AssistedDamagePrevented));
+        True(!assisted.RecordWeakPreventionCommand(
+            enemy,
+            new[] { new WeakPreventionRow(20, 1) },
+            out _));
+    }
+
+    private static void WeakSelfSplitFractionsCarryAcrossAttacks()
+    {
+        var state = CreateState(10, 20, 30, 40);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 0, 2, 10);
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 2, 3, 20);
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 3, 4, 30);
+        var rows = new[]
+        {
+            new WeakPreventionRow(10, 3),
+            new WeakPreventionRow(20, 3),
+            new WeakPreventionRow(30, 3),
+            new WeakPreventionRow(40, 3)
+        };
+
+        long credited = 0;
+        long discarded = 0;
+        for (var attack = 0; attack < 4; attack++)
+        {
+            True(assisted.RecordWeakPreventionCommand(enemy, rows, out var allocation));
+            credited += allocation.CreditedAward;
+            discarded += allocation.DiscardedSelfAward;
+        }
+
+        Equal(36L, credited);
+        Equal(12L, discarded);
+        Equal(48L, credited + discarded);
+
+        var resetState = CreateState(10, 20, 40);
+        var resetContributions = new AssistedContributionTracker();
+        var resetAssisted = new AssistedStatTracker(resetState, resetContributions);
+        var resetEnemy = new object();
+        resetContributions.ObserveAmount(AssistedEffectKind.Weak, resetEnemy, 0, 1, 10);
+        resetContributions.ObserveAmount(AssistedEffectKind.Weak, resetEnemy, 1, 2, 20);
+        True(resetAssisted.RecordWeakPreventionCommand(
+            resetEnemy,
+            new[] { new WeakPreventionRow(10, 2), new WeakPreventionRow(40, 3) },
+            out var carrying));
+        Equal(0L, carrying.DiscardedSelfAward);
+
+        resetContributions.ResetCycle(AssistedEffectKind.Weak, resetEnemy);
+        resetContributions.ObserveAmount(AssistedEffectKind.Weak, resetEnemy, 0, 1, 10);
+        resetContributions.ObserveAmount(AssistedEffectKind.Weak, resetEnemy, 1, 2, 20);
+        True(resetAssisted.RecordWeakPreventionCommand(
+            resetEnemy,
+            new[] { new WeakPreventionRow(10, 1), new WeakPreventionRow(40, 4) },
+            out var refreshed));
+        Equal(0L, refreshed.DiscardedSelfAward);
+    }
+
+    private static void WeakRoundsOnceAfterTargetSum()
+    {
+        var state = CreateState(10, 20, 30, 40);
+        var contributions = new AssistedContributionTracker();
+        var assisted = new AssistedStatTracker(state, contributions);
+        var enemy = new object();
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 0, 1, 10);
+        contributions.ObserveAmount(AssistedEffectKind.Weak, enemy, 1, 3, 20);
+        var twoTargets = new[]
+        {
+            new WeakPreventionRow(30, 1),
+            new WeakPreventionRow(40, 1)
+        };
+
+        True(assisted.RecordWeakPreventionCommand(enemy, twoTargets, out var first));
+        Equal(0L, first.PlayerAwards[10]);
+        Equal(2L, first.PlayerAwards[20]);
+
+        True(assisted.RecordWeakPreventionCommand(enemy, twoTargets, out var second));
+        Equal(1L, second.PlayerAwards[10]);
+        Equal(1L, second.PlayerAwards[20]);
+    }
+
+    private static void StrengthEventsAreOrderedAndExcludeSelf()
+    {
+        var ledger = new StrengthImpactLedger();
+        var allyOne = new object();
+        var allyTwo = new object();
+        True(!ledger.TryAdd(
+            10,
+            allyOne,
+            10,
+            1,
+            -1,
+            StrengthImpactExpiryKind.CombatPersistent,
+            null,
+            out _));
+        True(ledger.TryAdd(
+            10,
+            allyOne,
+            20,
+            1,
+            -1,
+            StrengthImpactExpiryKind.CombatPersistent,
+            null,
+            out var first));
+        True(ledger.TryAdd(
+            10,
+            allyTwo,
+            30,
+            -2,
+            -1,
+            StrengthImpactExpiryKind.UntilStrengthReset,
+            null,
+            out var second));
+
+        Equal(1L, first!.EventId);
+        Equal(2L, second!.EventId);
+        Equal(1L, first.ImpactValue);
+        Equal(-2L, second.ImpactValue);
+    }
+
+    private static void StrengthEventsRemainTargetIsolated()
+    {
+        var ledger = new StrengthImpactLedger();
+        var firstEnemy = new object();
+        var secondEnemy = new object();
+        True(ledger.TryAdd(
+            10, firstEnemy, null, -6, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out _));
+        True(ledger.TryAdd(
+            20, secondEnemy, null, 1, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out _));
+
+        Equal(1, ledger.GetEvents(firstEnemy).Count);
+        Equal(-6L, ledger.GetEvents(firstEnemy)[0].ImpactValue);
+        Equal(1, ledger.GetEvents(secondEnemy).Count);
+        Equal(1L, ledger.GetEvents(secondEnemy)[0].ImpactValue);
+        True(ledger.ResetTarget(firstEnemy));
+        Equal(0, ledger.GetEvents(firstEnemy).Count);
+        Equal(1, ledger.GetEvents(secondEnemy).Count);
+
+        ledger.Clear();
+        Equal(0, ledger.GetEvents(secondEnemy).Count);
+        True(ledger.TryAdd(
+            30, firstEnemy, null, -1, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var refreshed));
+        Equal(1L, refreshed!.EventId);
+    }
+
+    private static void StrengthEventLifetimesAreExact()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        var fixedSource = new object();
+        var conditionalSource = new object();
+        True(ledger.TryAdd(
+            10, enemy, null, -6, 1,
+            StrengthImpactExpiryKind.FixedTemporary, fixedSource, out _));
+        True(ledger.TryAdd(
+            20, enemy, null, 2, -1,
+            StrengthImpactExpiryKind.SourceBound, conditionalSource, out _));
+        True(!ledger.TryAdd(
+            30, enemy, null, 1, 0,
+            StrengthImpactExpiryKind.FixedTemporary, fixedSource, out _));
+
+        Equal(1, ledger.AdvancePlayerTurn());
+        Equal(1, ledger.GetEvents(enemy).Count);
+        Equal(1, ledger.ExpireSource(enemy, conditionalSource));
+        Equal(0, ledger.GetEvents(enemy).Count);
+    }
+
+    private static void StrengthPartialRestorationIsExact()
+    {
+        var ledger = new StrengthImpactLedger();
+        var ally = new object();
+        True(ledger.TryAdd(
+            10, ally, 20, 5, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var impact));
+
+        True(ledger.TryReduceEvent(impact!.EventId, 2));
+        Equal(3L, ledger.GetEvents(ally).Single().ImpactValue);
+        True(!ledger.TryReduceEvent(impact.EventId, 4));
+        Equal(3L, ledger.GetEvents(ally).Single().ImpactValue);
+        True(ledger.TryReduceEvent(impact.EventId, 3));
+        Equal(0, ledger.GetEvents(ally).Count);
+    }
+
+    private static void OutgoingStrengthAllocationRestartsByEvent()
+    {
+        var ledger = new StrengthImpactLedger();
+        var ally = new object();
+        True(ledger.TryAdd(
+            10, ally, 20, 5, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var first));
+        True(ledger.TryAdd(
+            30, ally, 20, 5, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var second));
+        True(ledger.TryAdd(
+            10, ally, 20, 5, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var third));
+        var capacities = new[]
+        {
+            new StrengthImpactCapacity(first!.EventId, 5),
+            new StrengthImpactCapacity(second!.EventId, 5),
+            new StrengthImpactCapacity(third!.EventId, 5)
+        };
+
+        True(ledger.TryAllocate(
+            ally, StrengthAssistDirection.OutgoingDamage, 14, capacities, out var firstHit));
+        Equal(9L, firstHit.PlayerAwards[10]);
+        Equal(5L, firstHit.PlayerAwards[30]);
+        Equal(4L, firstHit.EventAwards[third.EventId]);
+        Equal(0L, firstHit.UnassignedAward);
+
+        True(ledger.TryAllocate(
+            ally, StrengthAssistDirection.OutgoingDamage, 7, capacities, out var nextHit));
+        Equal(5L, nextHit.EventAwards[first.EventId]);
+        Equal(2L, nextHit.EventAwards[second.EventId]);
+        True(!nextHit.EventAwards.ContainsKey(third.EventId));
+    }
+
+    private static void HarmfulStrengthAllocationComesFirst()
+    {
+        var ledger = new StrengthImpactLedger();
+        var ally = new object();
+        True(ledger.TryAdd(
+            10, ally, 30, 6, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var helpful));
+        True(ledger.TryAdd(
+            20, ally, 30, -1, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var harmful));
+        var capacities = new[]
+        {
+            new StrengthImpactCapacity(helpful!.EventId, 6),
+            new StrengthImpactCapacity(harmful!.EventId, -1)
+        };
+
+        True(ledger.TryAllocate(
+            ally, StrengthAssistDirection.OutgoingDamage, 5, capacities, out var allocation));
+        Equal(-1L, allocation.PlayerAwards[20]);
+        Equal(6L, allocation.PlayerAwards[10]);
+        Equal(5L, allocation.CreditedAward);
+        Equal(0L, allocation.UnassignedAward);
+
+        True(ledger.TryAllocate(
+            ally, StrengthAssistDirection.OutgoingDamage, -1, capacities, out var harmfulOnly));
+        Equal(-1L, harmfulOnly.PlayerAwards[20]);
+        True(!harmfulOnly.PlayerAwards.ContainsKey(10));
+    }
+
+    private static void IncomingStrengthAllocationIsSigned()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        True(ledger.TryAdd(
+            10, enemy, null, -6, 1,
+            StrengthImpactExpiryKind.FixedTemporary, new object(), out var helpful));
+        True(ledger.TryAdd(
+            20, enemy, null, 1, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var harmful));
+        var capacities = new[]
+        {
+            new StrengthImpactCapacity(helpful!.EventId, 6),
+            new StrengthImpactCapacity(harmful!.EventId, -1)
+        };
+
+        True(ledger.TryAllocate(
+            enemy, StrengthAssistDirection.IncomingPrevention, 5, capacities, out var allocation));
+        Equal(6L, allocation.PlayerAwards[10]);
+        Equal(-1L, allocation.PlayerAwards[20]);
+        Equal(5L, allocation.CreditedAward);
+        Equal(0L, allocation.UnassignedAward);
+    }
+
+    private static void StrengthAllocationFailuresAreAtomic()
+    {
+        var ledger = new StrengthImpactLedger();
+        var ally = new object();
+        var other = new object();
+        True(ledger.TryAdd(
+            10, ally, 20, 3, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null, out var impact));
+        var wrongSign = new[] { new StrengthImpactCapacity(impact!.EventId, -3) };
+        True(!ledger.TryAllocate(
+            ally, StrengthAssistDirection.OutgoingDamage, 3, wrongSign, out var rejected));
+        Equal(0, rejected.EventAwards.Count);
+        Equal(3L, rejected.UnassignedAward);
+        True(!ledger.TryAllocate(
+            other,
+            StrengthAssistDirection.OutgoingDamage,
+            3,
+            new[] { new StrengthImpactCapacity(impact.EventId, 3) },
+            out _));
+        True(!ledger.TryAllocate(
+            ally,
+            StrengthAssistDirection.OutgoingDamage,
+            3,
+            new[]
+            {
+                new StrengthImpactCapacity(impact.EventId, 3),
+                new StrengthImpactCapacity(impact.EventId, 3)
+            },
+            out _));
+        Equal(1, ledger.GetEvents(ally).Count);
+    }
+
+    private static void StrengthActionsOwnReactiveChanges()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var action = new object();
+        var enemy = new object();
+        var self = new object();
+        var before = new Dictionary<object, StrengthTargetSnapshot>
+        {
+            [enemy] = new(0, null),
+            [self] = new(0, 10)
+        };
+        True(tracker.BeginAction(action, 10, before));
+        True(tracker.ObserveAmount(
+            action, enemy, null, 0, 2, null, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null).Deferred);
+        True(tracker.ObserveAmount(
+            action, self, 10, 0, 3, 20, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null).Deferred);
+
+        var completion = tracker.CompleteAction(
+            action,
+            new Dictionary<object, StrengthTargetSnapshot>
+            {
+                [enemy] = new(2, null),
+                [self] = new(3, 10)
+            });
+        True(completion.Accepted);
+        Equal(1, completion.EventsCreated);
+        Equal(10UL, ledger.GetEvents(enemy).Single().ImpactorPlayerNetId);
+        Equal(0, ledger.GetEvents(self).Count);
+    }
+
+    private static void StrengthDelayedSourceOwnershipWins()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var source = new object();
+        var action = new object();
+        var ally = new object();
+        True(tracker.ObserveSourceOwner(source, 10));
+        True(tracker.BeginAction(
+            action,
+            20,
+            new Dictionary<object, StrengthTargetSnapshot> { [ally] = new(0, 30) }));
+        tracker.ObserveAmount(
+            action, ally, 30, 0, 2, 20, tracker.ResolveSourceOwner(source), -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+
+        var completion = tracker.CompleteAction(
+            action,
+            new Dictionary<object, StrengthTargetSnapshot> { [ally] = new(2, 30) });
+        True(completion.Accepted);
+        Equal(10UL, ledger.GetEvents(ally).Single().ImpactorPlayerNetId);
+
+        True(!tracker.ObserveSourceOwner(source, 20));
+        Equal<ulong?>(null, tracker.ResolveSourceOwner(source));
+    }
+
+    private static void StrengthUnknownAndSelfChangesAreIgnored()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var enemy = new object();
+        var self = new object();
+        var unknown = tracker.ObserveAmount(
+            null, enemy, null, 0, 4, null, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+        var ignoredSelf = tracker.ObserveAmount(
+            null, self, 10, 0, 3, 10, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+
+        True(unknown.Accepted);
+        True(ignoredSelf.Accepted);
+        Equal(0, ledger.GetEvents(enemy).Count);
+        Equal(0, ledger.GetEvents(self).Count);
+    }
+
+    private static void StrengthTemporaryRestorationIsSourceBound()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var enemy = new object();
+        var source = new object();
+        var applied = tracker.ObserveAmount(
+            null, enemy, null, 0, -6, 10, null, 1,
+            StrengthImpactExpiryKind.FixedTemporary, source);
+        True(applied.Accepted);
+        True(applied.EventId.HasValue);
+        Equal(1, ledger.GetEvents(enemy).Count);
+
+        var restored = tracker.ObserveAmount(
+            null, enemy, null, -6, 0, null, null, 1,
+            StrengthImpactExpiryKind.FixedTemporary, source);
+        True(restored.Accepted);
+        True(restored.Reset);
+        Equal(0, ledger.GetEvents(enemy).Count);
+    }
+
+    private static void StrengthAmbiguousRestorationFailsClosed()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var enemy = new object();
+        var source = new object();
+        tracker.ObserveAmount(
+            null, enemy, null, 0, -6, 10, null, 1,
+            StrengthImpactExpiryKind.FixedTemporary, source);
+        tracker.ObserveAmount(
+            null, enemy, null, -6, -8, 20, null, 1,
+            StrengthImpactExpiryKind.FixedTemporary, source);
+        Equal(2, ledger.GetEvents(enemy).Count);
+
+        var partial = tracker.ObserveAmount(
+            null, enemy, null, -8, -6, null, null, 1,
+            StrengthImpactExpiryKind.FixedTemporary, source);
+        True(partial.Accepted);
+        True(partial.Reset);
+        Equal(0, ledger.GetEvents(enemy).Count);
+    }
+
+    private static void StrengthActionFailuresCommitNothing()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var enemy = new object();
+        var mismatched = new object();
+        True(tracker.BeginAction(
+            mismatched,
+            10,
+            new Dictionary<object, StrengthTargetSnapshot> { [enemy] = new(0, null) }));
+        tracker.ObserveAmount(
+            mismatched, enemy, null, 0, 2, null, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+        var result = tracker.CompleteAction(
+            mismatched,
+            new Dictionary<object, StrengthTargetSnapshot> { [enemy] = new(3, null) });
+        True(!result.Accepted);
+        Equal(0, ledger.GetEvents(enemy).Count);
+
+        var canceled = new object();
+        True(tracker.BeginAction(
+            canceled,
+            20,
+            new Dictionary<object, StrengthTargetSnapshot> { [enemy] = new(3, null) }));
+        tracker.ObserveAmount(
+            canceled, enemy, null, 3, 5, null, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+        True(tracker.CancelAction(canceled));
+        Equal(0, ledger.GetEvents(enemy).Count);
+    }
+
+    private static void StrengthTransientActionChangesAreIgnored()
+    {
+        var ledger = new StrengthImpactLedger();
+        var tracker = new StrengthContributionTracker(ledger);
+        var action = new object();
+        var ally = new object();
+        True(tracker.BeginAction(
+            action,
+            10,
+            new Dictionary<object, StrengthTargetSnapshot> { [ally] = new(5, 20) }));
+        tracker.ObserveAmount(
+            action, ally, 20, 5, 8, null, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+        tracker.ObserveAmount(
+            action, ally, 20, 8, 5, null, null, -1,
+            StrengthImpactExpiryKind.CombatPersistent, null);
+
+        var completion = tracker.CompleteAction(
+            action,
+            new Dictionary<object, StrengthTargetSnapshot> { [ally] = new(5, 20) });
+        True(completion.Accepted);
+        Equal(0, completion.EventsCreated);
+        Equal(0, ledger.GetEvents(ally).Count);
+    }
+
+    private static void StrengthOutgoingMatchesCorrectedExamples()
+    {
+        var ledger = new StrengthImpactLedger();
+        var attacker = new object();
+        AddStrengthEvent(ledger, attacker, 10, 5);
+        AddStrengthEvent(ledger, attacker, 30, 5);
+        AddStrengthEvent(ledger, attacker, 10, 5);
+        var events = ledger.GetEvents(attacker);
+
+        True(StrengthDamageCalculator.TryCalculateOutgoing(
+            22m, 1m, 1m, 8, 100, 14, events, out var blocked));
+        Equal(14L, blocked.EligibilityPool);
+        True(ledger.TryAllocate(
+            attacker,
+            StrengthAssistDirection.OutgoingDamage,
+            blocked.EligibilityPool,
+            blocked.EventCapacities,
+            out var blockedAllocation));
+        Equal(9L, blockedAllocation.PlayerAwards[10]);
+        Equal(5L, blockedAllocation.PlayerAwards[30]);
+
+        True(StrengthDamageCalculator.TryCalculateOutgoing(
+            22m, 1m, 1m, 0, 20, 20, events, out var lethal));
+        Equal(13L, lethal.EligibilityPool);
+        True(ledger.TryAllocate(
+            attacker,
+            StrengthAssistDirection.OutgoingDamage,
+            lethal.EligibilityPool,
+            lethal.EventCapacities,
+            out var lethalAllocation));
+        Equal(8L, lethalAllocation.PlayerAwards[10]);
+        Equal(5L, lethalAllocation.PlayerAwards[30]);
+    }
+
+    private static void StrengthOutgoingSeparatesVulnerable()
+    {
+        var ledger = new StrengthImpactLedger();
+        var attacker = new object();
+        AddStrengthEvent(ledger, attacker, 10, 15);
+
+        True(StrengthDamageCalculator.TryCalculateOutgoing(
+            33m, 1.5m, 1m, 8, 100, 25, ledger.GetEvents(attacker), out var result));
+        Equal(14L, result.EligibilityPool);
+        Equal(11L, result.VulnerableLayerPool);
+        Equal(25L, result.EligibilityPool + result.VulnerableLayerPool);
+    }
+
+    private static void StrengthOutgoingHarmfulComesFirst()
+    {
+        var ledger = new StrengthImpactLedger();
+        var attacker = new object();
+        AddStrengthEvent(ledger, attacker, 10, -2);
+        AddStrengthEvent(ledger, attacker, 20, 5);
+
+        True(StrengthDamageCalculator.TryCalculateOutgoing(
+            13m, 1m, 1m, 0, 100, 13, ledger.GetEvents(attacker), out var result));
+        Equal(3L, result.EligibilityPool);
+        True(ledger.TryAllocate(
+            attacker,
+            StrengthAssistDirection.OutgoingDamage,
+            result.EligibilityPool,
+            result.EventCapacities,
+            out var allocation));
+        Equal(-2L, allocation.PlayerAwards[10]);
+        Equal(5L, allocation.PlayerAwards[20]);
+        Equal(3L, allocation.CreditedAward);
+    }
+
+    private static void StrengthOutgoingPreservesWeakRounding()
+    {
+        var ledger = new StrengthImpactLedger();
+        var attacker = new object();
+        AddStrengthEvent(ledger, attacker, 10, 4);
+
+        True(StrengthDamageCalculator.TryCalculateOutgoing(
+            15.75m, 1.5m, 0.75m, 0, 100, 15,
+            ledger.GetEvents(attacker), out var result));
+        Equal(3L, result.EligibilityPool);
+        Equal(5L, result.VulnerableLayerPool);
+        Equal(3L, result.EventCapacities.Single().SignedCapacity);
+    }
+
+    private static void StrengthOutgoingRestartsEveryHit()
+    {
+        var ledger = new StrengthImpactLedger();
+        var attacker = new object();
+        AddStrengthEvent(ledger, attacker, 10, 5);
+        AddStrengthEvent(ledger, attacker, 20, 5);
+        var events = ledger.GetEvents(attacker);
+
+        foreach (var hp in new[] { 12, 7, 100 })
+        {
+            var actual = Math.Min(12, hp);
+            True(StrengthDamageCalculator.TryCalculateOutgoing(
+                12m, 1m, 1m, 0, hp, actual, events, out var result));
+            True(ledger.TryAllocate(
+                attacker,
+                StrengthAssistDirection.OutgoingDamage,
+                result.EligibilityPool,
+                result.EventCapacities,
+                out var allocation));
+            allocation.PlayerAwards.TryGetValue(10UL, out var firstPlayerAward);
+            Equal(Math.Min(5L, result.EligibilityPool), firstPlayerAward);
+        }
+    }
+
+    private static void StrengthOutgoingFailuresAreAtomic()
+    {
+        var ledger = new StrengthImpactLedger();
+        var attacker = new object();
+        AddStrengthEvent(ledger, attacker, 10, 3);
+        var events = ledger.GetEvents(attacker);
+
+        True(!StrengthDamageCalculator.TryCalculateOutgoing(
+            8m, 1m, 1m, 0, 100, 7, events, out var mismatched));
+        Equal(0L, mismatched.EligibilityPool);
+        True(!StrengthDamageCalculator.TryCalculateOutgoing(
+            0m, 1m, 1m, 0, 100, 0, events, out _));
+        True(!StrengthDamageCalculator.TryCalculateOutgoing(
+            8m, 0m, 1m, 0, 100, 8, events, out _));
+        Equal(1, ledger.GetEvents(attacker).Count);
+    }
+
+    private static void StrengthIncomingUsesPreBlockDamage()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        AddStrengthEvent(ledger, enemy, 10, -6);
+
+        True(StrengthDamageCalculator.TryCalculateIncoming(
+            4m, null, 0, 1m, 1m, 99, ledger.GetEvents(enemy), out var result));
+        Equal(6L, result.EligibilityPool);
+        Equal(0L, result.WeakLayerPool);
+        True(ledger.TryAllocate(
+            enemy,
+            StrengthAssistDirection.IncomingPrevention,
+            result.EligibilityPool,
+            result.EventCapacities,
+            out var allocation));
+        Equal(6L, allocation.PlayerAwards[10]);
+        // The calculator intentionally has no Block or HP input: a fully
+        // blocked hit still owns this same six-point pre-Block prevention.
+    }
+
+    private static void StrengthIncomingZeroClampCountsEveryHit()
+    {
+        var state = CreateState(10, 20, 30, 40);
+        var stats = new StrengthStatTracker(state);
+        var ledger = new StrengthImpactLedger();
+        var enemyA = new object();
+        var enemyB = new object();
+        AddStrengthEvent(ledger, enemyA, 10, -6);
+        AddStrengthEvent(ledger, enemyB, 10, -6);
+
+        foreach (var protectedPlayer in new ulong[] { 10, 20, 30, 40 })
+        {
+            if (protectedPlayer == 10)
+            {
+                True(!StrengthDamageCalculator.TryCalculateIncoming(
+                    2m, 8m, -6, 1m, 1m, protectedPlayer,
+                    ledger.GetEvents(enemyA), out _));
+                continue;
+            }
+
+            True(StrengthDamageCalculator.TryCalculateIncoming(
+                2m, 8m, -6, 1m, 1m, protectedPlayer,
+                ledger.GetEvents(enemyA), out var singleHit));
+            Equal(6L, singleHit.EligibilityPool);
+            True(ledger.TryAllocate(
+                enemyA,
+                StrengthAssistDirection.IncomingPrevention,
+                singleHit.EligibilityPool,
+                singleHit.EventCapacities,
+                out var singleAllocation));
+            True(stats.Record(singleAllocation, StatKind.AssistedDamagePrevented));
+
+            for (var hit = 0; hit < 8; hit++)
+            {
+                True(StrengthDamageCalculator.TryCalculateIncoming(
+                    0m, 2m, -6, 1m, 1m, protectedPlayer,
+                    ledger.GetEvents(enemyB), out var repeatedHit));
+                Equal(2L, repeatedHit.EligibilityPool);
+                True(ledger.TryAllocate(
+                    enemyB,
+                    StrengthAssistDirection.IncomingPrevention,
+                    repeatedHit.EligibilityPool,
+                    repeatedHit.EventCapacities,
+                    out var repeatedAllocation));
+                True(stats.Record(repeatedAllocation, StatKind.AssistedDamagePrevented));
+            }
+        }
+
+        Equal(
+            66L,
+            state.CaptureSnapshot().Players[10]
+                .GetTotal(StatKind.AssistedDamagePrevented));
+    }
+
+    private static void StrengthIncomingExcludesSelfProtection()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        var self = AddStrengthEvent(ledger, enemy, 10, -2);
+        var teammate = AddStrengthEvent(ledger, enemy, 20, -4);
+
+        True(StrengthDamageCalculator.TryCalculateIncoming(
+            4m, null, 0, 1m, 1m, 10, ledger.GetEvents(enemy), out var result));
+        Equal(4L, result.EligibilityPool);
+        True(ledger.TryAllocate(
+            enemy,
+            StrengthAssistDirection.IncomingPrevention,
+            result.EligibilityPool,
+            result.EventCapacities,
+            out var allocation));
+        True(!allocation.EventAwards.ContainsKey(self.EventId));
+        Equal(4L, allocation.EventAwards[teammate.EventId]);
+        True(!allocation.PlayerAwards.ContainsKey(10UL));
+    }
+
+    private static void StrengthIncomingHarmfulComesFirst()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        AddStrengthEvent(ledger, enemy, 20, 2);
+        AddStrengthEvent(ledger, enemy, 10, -6);
+
+        True(StrengthDamageCalculator.TryCalculateIncoming(
+            6m, null, 0, 1m, 1m, 99, ledger.GetEvents(enemy), out var result));
+        Equal(4L, result.EligibilityPool);
+        True(ledger.TryAllocate(
+            enemy,
+            StrengthAssistDirection.IncomingPrevention,
+            result.EligibilityPool,
+            result.EventCapacities,
+            out var allocation));
+        Equal(-2L, allocation.PlayerAwards[20]);
+        Equal(6L, allocation.PlayerAwards[10]);
+        Equal(4L, allocation.CreditedAward);
+    }
+
+    private static void StrengthIncomingSeparatesWeak()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        AddStrengthEvent(ledger, enemy, 10, -6);
+
+        True(StrengthDamageCalculator.TryCalculateIncoming(
+            3m, null, 0, 0.75m, 1m, 99, ledger.GetEvents(enemy), out var result));
+        Equal(6L, result.EligibilityPool);
+        Equal(1L, result.WeakLayerPool);
+        Equal(7L, result.EligibilityPool + result.WeakLayerPool);
+    }
+
+    private static void StrengthIncomingPreservesVulnerableRounding()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        AddStrengthEvent(ledger, enemy, 10, -3);
+
+        True(StrengthDamageCalculator.TryCalculateIncoming(
+            10.5m, null, 0, 1m, 1.5m, 99, ledger.GetEvents(enemy), out var result));
+        Equal(5L, result.EligibilityPool);
+        Equal(5L, result.EventCapacities.Single().SignedCapacity);
+    }
+
+    private static void StrengthIncomingRestartsAndFailsClosed()
+    {
+        var ledger = new StrengthImpactLedger();
+        var enemy = new object();
+        AddStrengthEvent(ledger, enemy, 10, -3);
+        AddStrengthEvent(ledger, enemy, 20, -3);
+        var events = ledger.GetEvents(enemy);
+
+        for (var target = 0; target < 4; target++)
+        {
+            True(StrengthDamageCalculator.TryCalculateIncoming(
+                4m, null, 0, 1m, 1m, 99, events, out var result));
+            True(ledger.TryAllocate(
+                enemy,
+                StrengthAssistDirection.IncomingPrevention,
+                result.EligibilityPool,
+                result.EventCapacities,
+                out var allocation));
+            Equal(3L, allocation.PlayerAwards[10]);
+            Equal(3L, allocation.PlayerAwards[20]);
+        }
+
+        True(!StrengthDamageCalculator.TryCalculateIncoming(
+            0m, null, 0, 1m, 1m, 99, events, out var zeroClamped));
+        Equal(0L, zeroClamped.EligibilityPool);
+        True(!StrengthDamageCalculator.TryCalculateIncoming(
+            4m, null, 0, 0m, 1m, 99, events, out _));
+        True(!StrengthDamageCalculator.TryCalculateIncoming(
+            4m, null, 0, 1m, 0m, 99, events, out _));
+        Equal(2, ledger.GetEvents(enemy).Count);
+    }
+
+    private static void SignedAssistedMutationsAreScoped()
+    {
+        var state = CreateState(10);
+        Equal(
+            MutationResult.Applied,
+            state.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, -5)));
+        Equal(
+            MutationResult.Applied,
+            state.TryApply(StatMutation.Add(10, StatKind.AssistedDamagePrevented, -7)));
+        Equal(
+            MutationResult.InvalidAmount,
+            state.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, 0)));
+        Equal(
+            MutationResult.InvalidAmount,
+            state.TryApply(StatMutation.Add(10, StatKind.DamageDealt, -1)));
+
+        var player = state.CaptureSnapshot().Players[10];
+        Equal(-5L, player.GetTotal(StatKind.AssistedDamage));
+        Equal(-7L, player.GetTotal(StatKind.AssistedDamagePrevented));
+        Equal(0L, player.GetTotal(StatKind.DamageDealt));
+    }
+
+    private static void StrengthAwardBatchesAreAtomic()
+    {
+        var state = CreateState(10, 20);
+        Equal(
+            MutationResult.Applied,
+            state.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, long.MaxValue)));
+        var before = state.CaptureSnapshot();
+        var tracker = new StrengthStatTracker(state);
+        var allocation = new StrengthAssistAllocation(
+            -2,
+            new ReadOnlyDictionary<long, long>(new Dictionary<long, long>
+            {
+                [1] = 1,
+                [2] = -3
+            }),
+            new ReadOnlyDictionary<ulong, long>(new Dictionary<ulong, long>
+            {
+                [10] = 1,
+                [20] = -3
+            }),
+            0);
+
+        True(!tracker.Record(allocation, StatKind.AssistedDamage));
+        var after = state.CaptureSnapshot();
+        Equal(before.Revision, after.Revision);
+        Equal(long.MaxValue, after.Players[10].GetTotal(StatKind.AssistedDamage));
+        Equal(0L, after.Players[20].GetTotal(StatKind.AssistedDamage));
+        True(!tracker.Record(allocation, StatKind.DamageDealt));
+    }
+
+    private static void SchemaTwoSidecarsMigrateSafely()
+    {
+        var state = CreateState(10);
+        state.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, 8));
+        var snapshot = state.CaptureSnapshot();
+        var root = JsonNode.Parse(SidecarSnapshotCodec.Serialize(snapshot, 77))!.AsObject();
+        root["schema_version"] = SidecarSnapshotCodec.PoisonSchemaVersion;
+        root["snapshot_schema_version"] = SidecarSnapshotCodec.PoisonSchemaVersion;
+        foreach (var player in root["players"]!.AsArray())
+        {
+            var totals = player!["totals"]!.AsArray();
+            totals.Remove(totals.Single(value =>
+                value!["kind"]!.GetValue<string>() == nameof(StatKind.DoomApplied)));
+        }
+
+        Equal(
+            SidecarLoadResult.Loaded,
+            SidecarSnapshotCodec.TryDeserialize(
+                root.ToJsonString(), snapshot.Identity!, 77, out var migrated));
+        Equal(RunStatsSnapshot.CurrentSchemaVersion, migrated!.SchemaVersion);
+        Equal(8L, migrated.Players[10].GetTotal(StatKind.AssistedDamage));
+
+        var assisted = root["players"]![0]!["totals"]!.AsArray().Single(value =>
+            value!["kind"]!.GetValue<string>() == nameof(StatKind.AssistedDamage));
+        assisted!["value"] = -1;
+        Equal(
+            SidecarLoadResult.InvalidSnapshot,
+            SidecarSnapshotCodec.TryDeserialize(
+                root.ToJsonString(), snapshot.Identity!, 77, out _));
+    }
+
+    private static void SchemaFourRoundTripsSignedTotals()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            var saved = CreateState(10, 20);
+            saved.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, -9));
+            saved.TryApply(StatMutation.Add(20, StatKind.AssistedDamagePrevented, -4));
+            var store = new RunStatsSidecarStore(directory);
+            store.WriteActive(saved.CaptureSnapshot(), 901);
+
+            var restored = CreateState(10, 20);
+            Equal(
+                SidecarLoadResult.Loaded,
+                store.TryLoadActive(saved.CaptureSnapshot().Identity!, 901, restored));
+            var snapshot = restored.CaptureSnapshot();
+            Equal(4, snapshot.SchemaVersion);
+            Equal(-9L, snapshot.Players[10].GetTotal(StatKind.AssistedDamage));
+            Equal(-4L, snapshot.Players[20].GetTotal(StatKind.AssistedDamagePrevented));
+
+            var root = JsonNode.Parse(File.ReadAllText(
+                store.GetActivePath(RunMode.Multiplayer)))!.AsObject();
+            var ordinary = root["players"]![0]!["totals"]!.AsArray().Single(value =>
+                value!["kind"]!.GetValue<string>() == nameof(StatKind.DamageDealt));
+            ordinary!["value"] = -1;
+            Equal(
+                SidecarLoadResult.InvalidSnapshot,
+                SidecarSnapshotCodec.TryDeserialize(
+                    root.ToJsonString(), snapshot.Identity!, 901, out _));
+        });
+    }
+
+    private static void SignedAssistedTotalsRenderCorrectly()
+    {
+        var state = CreateState(10, 20);
+        state.TryApply(StatMutation.Add(10, StatKind.AssistedDamage, -5));
+        state.TryApply(StatMutation.Add(20, StatKind.AssistedDamage, 2));
+        state.TryApply(StatMutation.Add(10, StatKind.AssistedDamagePrevented, -1234));
+        True(StatsViewModel.TryCreate(state.CaptureSnapshot(), out var viewModel));
+
+        var damage = UiRow(viewModel!, "Assisted Damage");
+        Equal("-5", damage.PlayerValues[0]);
+        Equal("2", damage.PlayerValues[1]);
+        Equal("-3", damage.TeamValue);
+        Equal("-1,234", UiRow(viewModel!, "Damage Prevented").PlayerValues[0]);
+    }
+
+    private static void SignedStrengthAwardsAreDeterministic()
+    {
+        var allocation = new StrengthAssistAllocation(
+            3,
+            new ReadOnlyDictionary<long, long>(new Dictionary<long, long>
+            {
+                [1] = -2,
+                [2] = 5
+            }),
+            new ReadOnlyDictionary<ulong, long>(new Dictionary<ulong, long>
+            {
+                [10] = -2,
+                [20] = 5
+            }),
+            0);
+        var first = CreateState(10, 20);
+        var second = CreateState(10, 20);
+
+        True(new StrengthStatTracker(first).Record(
+            allocation, StatKind.AssistedDamagePrevented));
+        True(new StrengthStatTracker(second).Record(
+            allocation, StatKind.AssistedDamagePrevented));
+        var firstSnapshot = first.CaptureSnapshot();
+        var secondSnapshot = second.CaptureSnapshot();
+        Equal(firstSnapshot.Revision, secondSnapshot.Revision);
+        foreach (var playerNetId in firstSnapshot.Identity!.PlayerNetIds)
+        {
+            Equal(
+                firstSnapshot.Players[playerNetId].GetTotal(StatKind.AssistedDamagePrevented),
+                secondSnapshot.Players[playerNetId].GetTotal(StatKind.AssistedDamagePrevented));
+        }
+    }
+
+    private static StrengthImpactEvent AddStrengthEvent(
+        StrengthImpactLedger ledger,
+        object target,
+        ulong playerNetId,
+        long value)
+    {
+        True(ledger.TryAdd(
+            playerNetId,
+            target,
+            null,
+            value,
+            -1,
+            StrengthImpactExpiryKind.CombatPersistent,
+            null,
+            out var impactEvent));
+        return impactEvent!;
+    }
+
     private static void WithTemporaryDirectory(Action<string> action)
     {
         var root = Path.Combine(Path.GetTempPath(), "RunStats.Tests", Guid.NewGuid().ToString("N"));
@@ -1710,7 +3251,7 @@ internal static class Program
         StatKind.PotionsObtained => "Potions Obtained",
         StatKind.PotionsUsed => "Potions Used",
         StatKind.AssistedDamage => "Assisted Damage",
-        StatKind.AssistedDamagePrevented => "Assisted Damage Prevented",
+        StatKind.AssistedDamagePrevented => "Damage Prevented",
         StatKind.PoisonApplied => "Poison Applied",
         StatKind.DoomApplied => "Doom Applied",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))

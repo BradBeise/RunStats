@@ -2,12 +2,12 @@
 
 ## Canonical locations
 
-- Source repository: `C:\Users\Brad Beise\Documents\Repos\RunStats`
-- Historical v0.1.0 local Debug backup: `C:\Users\Brad Beise\Documents\Repos\RunStatsLocalTestModFolder`
-- Game-local development destination: `D:\Steam\steamapps\common\Slay the Spire 2\mods\RunStats`
-- Workshop upload workspace: `C:\Users\Brad Beise\Documents\Repos\RunStats\workshop\RunStats`
-- Subscribed production copy: `D:\Steam\steamapps\workshop\content\2868840\3797791393`
-- Mega Crit uploader: `C:\Users\Brad Beise\Documents\Repos\RunStats\tools\mod-uploader-v0.2.0`
+- Source repository: `C:\Users\Mike Major\Desktop\RunStats`
+- Historical v0.1.0 package: `C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats\rollback\v0.1.0`
+- Game-local development destination: `D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\RunStats`
+- Workshop upload workspace: `C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats`
+- Subscribed production copy: `D:\SteamLibrary\steamapps\workshop\content\2868840\3797791393`
+- Mega Crit uploader: `C:\Users\Mike Major\Desktop\RunStats\tools\mod-uploader-v0.2.0`
 - Workshop item: `https://steamcommunity.com/sharedfiles/filedetails/?id=3797791393`
 - Current Steam profile settings root: `C:\Users\Brad Beise\AppData\Roaming\SlayTheSpire2\steam\76561198407892354`
 
@@ -21,7 +21,7 @@ The preserved v0.1.0 package contains exactly:
 
 | File | SHA-256 |
 | --- | --- |
-| `mod_manifest.json` | `6E697AA7AFF5A50A6C3576EF14797AEB6E9F52DB23E7464874460D886F40EAB5` |
+| `mod_manifest.json` | `DFAE6493E6F2329191AD65D854F1D0003FFBCFAC534FF32917EBBA589ED578CA` |
 | `RunStats.dll` | `7283EB1E106E160305EF355D67AC711FE80D7BABF9618C34D1BCE4671C6CF070` |
 | `runstats.pck` | `2E075CFCFAE4EE3CBDC824CB0040CFD3FFDF4920666C93C7165324C7797E58D1` |
 
@@ -38,7 +38,7 @@ STS2 must never see both the local and Workshop copies of the `runstats` manifes
 - After testing, close the game and move the entire local `RunStats` directory back outside the game's recursively scanned `mods` tree before re-enabling or resubscribing to the Workshop item.
 - Do not edit files inside Steam's `steamapps\workshop\content` directory. Steam owns and may replace them.
 
-The current machine has the Workshop item installed but disabled in `settings.save`, and no game-local `mods\RunStats` directory existed at the Phase 4 checkpoint. Phase 5 must reconfirm both facts and that the game is closed before installing the Release candidate.
+The current machine has the Workshop item installed but disabled in `settings.save`. The game-local `mods\RunStats` directory contains the earlier Weak/Vulnerable Release candidate. Strength Phase 7 must reconfirm that STS2 is closed, the local/folder source is enabled, and the subscribed Workshop source is disabled before replacing that local candidate.
 
 ## v0.2.0 upgrade notes
 
@@ -47,6 +47,23 @@ The current machine has the Workshop item installed but disabled in `settings.sa
 - Poison contribution weights, exact fractional carries, per-cycle kill comparisons, and Accelerant sponsor order are combat-only. They are intentionally absent from sidecars and reset at combat end. Only finalized run totals persist.
 - Block Lost now records only Block absorbed by enemy damage. End-of-turn clearing and other non-enemy Block reductions are excluded; existing saved totals are preserved rather than reconstructed.
 - If rollback to v0.1.0 is required, close the game and use the preserved `workshop\RunStats\rollback\v0.1.0` package through a separately approved release or local-test workflow. A schema-2 sidecar is not readable by v0.1.0; preserve it for diagnosis or archive it inside the RunStats-owned data directory rather than editing vanilla saves.
+
+## v0.2.1 Weak/Vulnerable upgrade notes
+
+- Weak/Vulnerable attribution originally retained schema 2 because no finalized field changed. The combined Strength update advances v0.2.1 to schema 3 so the existing assisted totals can safely become signed.
+- Weak and Vulnerable cumulative weights, reverse-application remainder cursors, unattributed shares, and Weak self-split fractional carries are combat-only. STS2 does not restore an active combat checkpoint, so these values reset at combat/run boundaries and are intentionally absent from new sidecars.
+- The schema-2 `assisted_ownership` property remains structurally accepted for backward compatibility. Valid legacy records are logged and discarded after their accumulated totals restore; they are never converted into weighted contributions. New active, pending, and archive sidecars always emit an empty collection.
+- Vulnerable allocates each actual Block/HP/overkill-aware assist event once. Weak calculates prevention per attacked player, sums one command pool, allocates it once, and then removes each contributor's proportional self-protection share with exact carry across the active Weak cycle.
+- The Weak/Vulnerable Phase 6 candidate remains the installed local copy until Strength Phase 7. Workspace builds must not replace either it or the disabled subscribed copy before that approval gate.
+
+## v0.2.1 Strength and schema-3 upgrade notes
+
+- Schema 3 permits negative totals only for Assisted Damage and Assisted Damage Prevented. All other totals remain nonnegative. Complete schema-2 sidecars migrate all existing nonnegative totals unchanged; complete schema-1 sidecars additionally initialize Poison Applied and its diagnostics to zero.
+- RunStats v0.2.0 cannot read schema-3 sidecars. Before any rollback, close the game and preserve schema-3 active/pending files inside the RunStats-owned data directory for diagnosis or future restoration; never edit vanilla saves to force compatibility.
+- Signed Strength awards are committed atomically across all credited players for each hit. Overflow or malformed allocation rejects the whole Strength award without partially changing player totals.
+- Strength impact events, source links, lifetimes, and ordering are combat-only. They reset on entity/reset/combat boundaries and are not reconstructed from sidecars or network traffic. Only finalized signed assisted totals persist.
+- Weak and Vulnerable keep their proportional cumulative-weight behavior. Strength uses separate signed events and earliest-event allocation; these models must not be merged or serialized as shared ownership metadata.
+- The Release assembly remains client-optional: `affects_gameplay` is `false`, and custom `INetMessage` implementations remain excluded.
 
 ### Phase 5 local Release candidate
 
@@ -86,9 +103,73 @@ The published v0.3.0 package contains exactly these three files. The Release bui
 
 | File | SHA-256 |
 | --- | --- |
-| `mod_manifest.json` | `22DF6826723093AE7335EA18D707CB555A824F1DDFCDCFB28D8B2A81CD2E4941` |
+| `mod_manifest.json` | `0B2EE0AAB26CB7F41DAD124630B4F7F82FDBD953B8589E30A6E577C5C0D2CD98` |
 | `RunStats.dll` | `C3AA0F15380843302F745316BCFE08CCBB7981465B3AB241A51A3FB5415D0637` |
 | `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+
+### Strength Phase 6 validated workspace candidate
+
+Validated 2026-09-10 without installing, packaging, or changing Workshop content. Debug and Release each pass all 137 tests; both solution builds finish with zero warnings and errors. The Release assembly contains no custom network-message implementation, and the source manifest still declares `affects_gameplay: false`.
+
+| Future package source | SHA-256 |
+| --- | --- |
+| `RunStats.dll` | `81B1BB3994AA2C01656D99BCE1B5A4168C0192644066B90779FF5070E5ED94BA` |
+| `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+| `mod_manifest.json` | `83A482429AF9F103D674B8FACF6DB92C7271437C0F061EA163A4136FDA5BF974` |
+
+This candidate predated the v0.3.0 Doom merge and is retained only as historical validation evidence. The next candidate must be rebuilt from the combined branch before testing resumes. `tools\Package-RunStatsWorkshop.ps1` names exactly three package sources and rejects an unexpected output count. The existing Workshop content, `workshop.json`, and `mod_id.txt` remain unchanged.
+
+### Strength Phase 7 local Release candidate
+
+Installed 2026-09-10 after confirming STS2 was closed, local `runstats` was enabled, and Workshop `runstats` was disabled. The local directory contains exactly the three files below, with installed hashes matching the Phase 6 workspace sources:
+
+| File | SHA-256 |
+| --- | --- |
+| `RunStats.dll` | `81B1BB3994AA2C01656D99BCE1B5A4168C0192644066B90779FF5070E5ED94BA` |
+| `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+| `mod_manifest.json` | `83A482429AF9F103D674B8FACF6DB92C7271437C0F061EA163A4136FDA5BF974` |
+
+At installation time the Steam-managed Workshop DLL remained the published v0.2.0 artifact. This local candidate predates the v0.3.0 Doom merge and must be replaced by a combined build before further testing. Live Strength and deferred multiplayer Weak/Vulnerable evidence is pending; do not treat automated coverage as a passed playtest.
+
+### Strength Phase 7 v0.3.0 merge refresh
+
+On 2026-09-14, `WeakVulnTweaks` was fast-forwarded to `origin/main` commit `b1bdf4c`, all Doom/Strength/Weak/Vulnerable conflicts were resolved, and snapshot/sidecar schema 4 was introduced to distinguish signed-assisted files from public v0.3.0 schema 3. Debug and Release builds completed with zero warnings/errors and all 141 tests passed in both configurations. With STS2 closed, the combined Release candidate replaced the local test copy; source and installed hashes match:
+
+| File | SHA-256 |
+| --- | --- |
+| `RunStats.dll` | `0C54F35369228DAA17194D4310FC562F75200028DADBCA0328A6A476CEF521D7` |
+| `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+| `mod_manifest.json` | `0B2EE0AAB26CB7F41DAD124630B4F7F82FDBD953B8589E30A6E577C5C0D2CD98` |
+
+The local candidate deliberately retains version 0.3.0 during testing. Workshop upload content and `mod_id.txt` were not changed.
+
+### Strength Phase 8 zero-clamp correction
+
+Implemented and validated 2026-09-17 after the live multiplayer test found that repeated enemy hits reduced to zero were omitted from Strength prevention. The damage hook now captures each hit's original amount and reconstructs an exact zero-clamped counterfactual only when Strength is the sole additive modifier. A four-player regression requires the reported `18 + 48 = 66` Assisted Damage Prevented result, including per-target self exclusion. Debug and Release builds have zero warnings/errors and all 142 tests pass in both configurations.
+
+| Candidate file | SHA-256 |
+| --- | --- |
+| `RunStats.dll` | `7178884B6F496EB870A68E7AA80D243051DF920A0B31D83D6577F8FC79B7BB72` |
+| `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+| `mod_manifest.json` | `0B2EE0AAB26CB7F41DAD124630B4F7F82FDBD953B8589E30A6E577C5C0D2CD98` |
+
+The first deployment check found the game running and made no changes. After the process closed, the candidate was installed through the safe Release deployment path. The local directory contains exactly the DLL, PCK, and manifest shown above, and every installed hash matches its workspace source. Workshop content is unchanged.
+
+The user could not recreate the four-player scenario after installation and accepted the exact 66-point automated regression as sufficient confirmation. Record this as an automated pass with no live retest, not as live multiplayer evidence.
+
+### Prepared v0.3.1 Workshop package
+
+Prepared 2026-09-17 after explicit Strength Phase 9 approval and refreshed 2026-09-18 with the initialization hotfix. Project/package version is `0.3.1`, assembly version is `0.3.1.0`, snapshot/sidecar schema remains 4, `affects_gameplay` remains `false`, and the Release assembly contains no custom network-message implementation. Debug and Release builds have zero warnings/errors and all 143 tests pass in both configurations.
+
+The published v0.3.0 package was preserved first under `workshop\RunStats\rollback\v0.3.0`. `mod_id.txt` remains `3797791393`, the thumbnail remains 735,516 bytes, and the uploader content contains exactly these verified v0.3.1 files:
+
+| File | SHA-256 |
+| --- | --- |
+| `RunStats.dll` | `BD82B7706A408704969724F14988699044FB54BB7944359D5C4BC9E706D9C5FA` |
+| `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+| `mod_manifest.json` | `322D17AF10E56DBCED064ABE3812BE097890364A96FBD6DA623CF403077C840B` |
+
+The visible `Assisted Damage Prevented` row was renamed to `Damage Prevented` before commit; the internal persisted identifier remains unchanged. The 2026-09-18 hotfix updates the `Hook.ModifyDamage` Harmony prefix to bind the game's `damage` parameter (instead of the obsolete `amount` name), preventing `PatchAll()` from aborting and restoring RunStats initialization and its top-right menu. A regression test locks that parameter contract. The local Release installation is refreshed from the final package before commit. No Steam uploader command was run and no visibility/publication state changed.
 
 ## Future change workflow
 
@@ -118,7 +199,7 @@ The published v0.3.0 package contains exactly these three files. The Release bui
 9. Review `workshop.json`, especially visibility and `changeNote`, then upload from the uploader directory:
 
    ```powershell
-   .\ModUploader.exe upload -w "C:\Users\Brad Beise\Documents\Repos\RunStats\workshop\RunStats"
+   .\ModUploader.exe upload -w "C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats"
    ```
 
 10. Verify the existing item ID remains `3797791393`, inspect the public page, wait for Steam to update the subscribed copy, and verify its files/hashes before launching the game.
@@ -128,5 +209,6 @@ The published v0.3.0 package contains exactly these three files. The Release bui
 - `affects_gameplay` remains `false` so unmodded friends can join.
 - The Release assembly must contain no custom `INetMessage` implementations.
 - RunStats writes only its own `com.bradbeise.runstats` sidecars and dedicated mod artifacts; never edit vanilla saves or unrelated mods.
-- Ambiguous assisted-stat attribution remains omitted rather than estimated.
+- Unattributed Weak/Vulnerable applications remain in their denominators but produce no player credit.
+- Unknown or ambiguous Strength source, lifetime, restoration, reset, or damage counterfactual remains uncredited; never infer ownership from local-player identity or timing alone.
 - Keep the external Stage 9 save backups documented in `RUNSTATS_SPEC.md` until they are intentionally retired.

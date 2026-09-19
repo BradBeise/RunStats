@@ -68,6 +68,64 @@ public sealed class RunStatsState
         return result;
     }
 
+    public MutationResult TryApplyBatch(IReadOnlyList<StatMutation> mutations)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        if (Lifecycle != RunLifecycle.Active)
+        {
+            return MutationResult.NoActiveRun;
+        }
+
+        if (mutations.Count == 0)
+        {
+            return MutationResult.InvalidAmount;
+        }
+
+        var replacements = new Dictionary<ulong, PlayerStats>();
+        try
+        {
+            var nextRevision = checked(Revision + mutations.Count);
+            foreach (var mutation in mutations)
+            {
+                if (!_players.TryGetValue(mutation.PlayerNetId, out var current))
+                {
+                    return MutationResult.UnknownPlayer;
+                }
+
+                if (!replacements.TryGetValue(mutation.PlayerNetId, out var replacement))
+                {
+                    if (!PlayerStats.TryCreateFromSnapshot(
+                            current.CaptureSnapshot(),
+                            out replacement))
+                    {
+                        return MutationResult.InvalidAmount;
+                    }
+
+                    replacements.Add(mutation.PlayerNetId, replacement!);
+                }
+
+                var result = replacement!.TryApply(mutation);
+                if (result != MutationResult.Applied)
+                {
+                    return result;
+                }
+            }
+
+            foreach (var pair in replacements)
+            {
+                _players[pair.Key] = pair.Value;
+            }
+
+            Revision = nextRevision;
+            Changed?.Invoke();
+            return MutationResult.Applied;
+        }
+        catch (OverflowException)
+        {
+            return MutationResult.Overflow;
+        }
+    }
+
     public MutationResult TryRecordDiagnostic(DiagnosticKind kind, long amount = 1)
     {
         if (Lifecycle != RunLifecycle.Active)

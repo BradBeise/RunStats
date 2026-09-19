@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Creatures;
@@ -30,8 +31,11 @@ internal static class DamageAssistScopePatch
     }
 
     [HarmonyPostfix]
-    private static void Postfix(DamageAssistScope __state)
+    private static void Postfix(
+        DamageAssistScope __state,
+        ref Task<IEnumerable<DamageResult>> __result)
     {
+        __result = RunStatsRuntime.CompleteDamageAssistScopeAsync(__result, __state);
         RunStatsRuntime.DetachDamageAssistScope(__state);
     }
 }

@@ -12,6 +12,10 @@ namespace RunStats.Integration.Patches;
 [HarmonyPatch(typeof(Hook), nameof(Hook.ModifyDamage))]
 internal static class ModifyDamageAssistPatch
 {
+    [HarmonyPrefix]
+    private static void Prefix(decimal damage, out decimal __state) =>
+        __state = damage;
+
     [HarmonyPostfix]
     private static void Postfix(
         IRunState runState,
@@ -22,6 +26,7 @@ internal static class ModifyDamageAssistPatch
         CardModel? cardSource,
         ModifyDamageHookType modifyDamageHookType,
         IEnumerable<AbstractModel> modifiers,
+        decimal __state,
         decimal __result)
     {
         RunStatsRuntime.OnDamageModified(
@@ -33,6 +38,7 @@ internal static class ModifyDamageAssistPatch
             cardSource,
             modifyDamageHookType,
             modifiers,
-            __result);
+            __result,
+            __state);
     }
 }

@@ -37,7 +37,8 @@ internal sealed class PlayerStats
         var restored = new PlayerStats(snapshot.PlayerNetId);
         foreach (var kind in Enum.GetValues<StatKind>())
         {
-            if (!snapshot.Totals.TryGetValue(kind, out var total) || total < 0)
+            if (!snapshot.Totals.TryGetValue(kind, out var total) ||
+                !StatSemantics.IsValidTotal(kind, total))
             {
                 return false;
             }
@@ -87,7 +88,7 @@ internal sealed class PlayerStats
             return MutationResult.InvalidStat;
         }
 
-        if (mutation.Amount <= 0)
+        if (!StatSemantics.IsValidMutation(mutation.Kind, mutation.Amount))
         {
             return MutationResult.InvalidAmount;
         }

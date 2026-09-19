@@ -329,7 +329,7 @@ These scenarios become executable unit/integration tests after the open decision
 ## UI design
 
 - Add **Poison Applied** as a row in the existing **DAMAGE** tab.
-- Proposed order: Damage Dealt, Poison Applied, Damage Taken, Assisted Damage, Assisted Damage Prevented.
+- Proposed order: Damage Dealt, Poison Applied, Damage Taken, Assisted Damage, Damage Prevented.
 - Use the existing per-player columns, Team column, number formatting, responsive layout, and navigation behavior.
 - Do not add a second poison-damage row; poison damage is included in Damage Dealt as requested.
 

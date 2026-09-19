@@ -1,6 +1,6 @@
 # RunStats
 
-RunStats is a Slay the Spire 2 mod that tracks complete-run, per-player statistics in single-player and co-op. Version 0.3.0 is public as Steam Workshop item `3797791393`. The release adds Doom application, proportional Doom-kill damage, and Doom kill credit.
+RunStats is a Slay the Spire 2 mod that tracks complete-run, per-player statistics in single-player and co-op. Version 0.3.0 is public as Steam Workshop item `3797791393`; it adds Doom application, proportional Doom-kill damage, and Doom kill credit. The `WeakVulnTweaks` branch contains the verified, packaged v0.3.1 candidate with proportional Weak/Vulnerable assistance and signed Strength attribution; it has not been uploaded or replaced the published package.
 
 ## Compatibility
 
@@ -27,7 +27,7 @@ The model and statistic-tracker tests are dependency-free and run with `dotnet r
 
 ## Run and player model
 
-`RunStatsState` owns one active run at a time. A canonical `RunIdentity` combines seed, mode, profile, UTC start time, and sorted distinct player NetIds. Positive typed mutations are accepted only for known players in an active run; invalid, ambiguous, and overflowing mutations fail closed without partially changing state. Every accepted mutation advances the run revision once, while each affected player has an independent revision. Snapshots are detached read-only copies with schema version 3, per-player totals, exact card-play counts, diagnostics, and derived team totals.
+`RunStatsState` owns one active run at a time. A canonical `RunIdentity` combines seed, mode, profile, UTC start time, and sorted distinct player NetIds. Positive typed mutations are accepted only for known players in an active run; Assisted Damage and Damage Prevented additionally accept nonzero signed mutations. Invalid, ambiguous, and overflowing mutations fail closed without partially changing state, including atomic multi-player Strength awards. Every accepted mutation advances the run revision once, while each affected player has an independent revision. Snapshots are detached read-only copies with schema version 4, per-player totals, exact card-play counts, diagnostics, and derived team totals.
 
 ## Core combat tracking
 
@@ -35,9 +35,17 @@ RunStats starts and clears its in-memory state with the game run lifecycle and s
 
 ## Assisted statistics
 
-RunStats credits Assisted Damage for a teammate's uniquely owned Vulnerable and Assisted Damage Prevented for a teammate's uniquely owned Weak. It captures STS2's exact live multiplier, reverses that multiplier without invoking the damage pipeline again, and applies the game's integer Block/HP/overkill semantics. Weak prevention is measured before the protected player's Block or mitigation.
+RunStats tracks each player's cumulative positive Weak and Vulnerable applications separately for every enemy. Natural decay and other nonzero reductions do not change contribution weights. Reaching zero, explicit removal, or combat cleanup starts a fresh cycle. Unknown applications remain in an unattributed denominator rather than being assigned to a player.
 
-Vulnerable and Weak merge applications into one power instance. RunStats keeps credit only while every effective positive application has the same known player owner. A contribution from another or unknown owner permanently marks that instance ambiguous until removal, and no individual assist is awarded. Events involving an applied damage cap, or assisted-damage events involving HP-loss/redirection overrides, are also omitted rather than estimated.
+Vulnerable Assisted Damage uses STS2's exact live multiplier and actual Block, HP loss, integer truncation, and overkill boundaries. Each resulting assist pool is divided by cumulative Vulnerable weights. The attacker's own share and unattributed shares are discarded without redistribution.
+
+Weak Damage Prevented is measured independently for every player target before that player's Block or other defender mitigation. All target values from one enemy damage command are summed and allocated once by cumulative Weak weights. Each contributor's gross award is then split between self-protection and teammate protection; only the teammate portion is credited. Fractional self-splits carry across attacks until the Weak cycle resets.
+
+Both effects round contributor shares down and distribute indivisible points through a rotating reverse-application order. Every positive application moves its contributor to the front and restarts the remainder cursor. Events involving an applied damage cap, or Vulnerable events involving unprovable HP-loss/redirection overrides, remain omitted rather than estimated.
+
+Strength attribution records each reliably player-caused signed Strength change as a separate combat-local event for every non-self creature affected. It observes cards, potions, relics, powers, draw/discard/play reactions, and player-triggered monster reactions from their final before/after Strength change. Temporary events expire with their linked restoration source; explicit Strength reset, entity removal, and combat end clear the relevant events. Unknown source or lifetime information is never guessed.
+
+For a player's powered attack, RunStats measures each target/hit after Block, HP limits, overkill, and integer truncation, removes Vulnerable's already credited layer, and gives signed Assisted Damage to external Strength events. For an enemy powered attack, it measures pre-Block damage for every player hit, removes Weak's layer, excludes that protected player's own event, and gives signed Damage Prevented. Harmful events are applied first and subtract from the statistic; otherwise earlier Strength events receive credit first on every hit. Incoming hits reduced to zero use the captured pre-modifier attack value so repeated zero-damage hits still receive exact prevention credit. Unsupported damage caps, redirection/HP-loss ambiguity, and unknown additive or multiplicative modifier stacks fail closed.
 
 ## Poison tracking (v0.2.0)
 
@@ -71,10 +79,12 @@ RunStats derives synchronized game events locally on each peer that has the mod 
 
 RunStats stores only its own versioned JSON sidecars under the active profile's `com.bradbeise.runstats` directory. Single-player and multiplayer use separate active and pending files. Mutation-driven pending snapshots are debounced and never treated as restorable checkpoints; an active sidecar is promoted only after STS2 reports that the corresponding vanilla save succeeded. Every installed peer may restore its own matching local sidecar. Restore requires an exact composite run identity and exact vanilla save timestamp, then conservatively merges history-backed totals by maximum value. The opening Ancient/Neow history entry is excluded from Healing Done because STS2 records initial HP there as healed rather than as an in-run heal.
 
-Writes use a flushed temporary file followed by atomic replacement. Complete schema-1 v0.1.0 and schema-2 v0.2.0 sidecars migrate to schema 3 with Doom Applied initialized to zero; schema-1 migration also initializes the poison fields. Malformed, oversized, unsupported-schema, incomplete-current-schema, wrong-run, and wrong-checkpoint files fail closed without changing the in-memory state or vanilla saves. Completed, defeated, victorious, and abandoned runs are archived in the RunStats-owned archive directory. Multiplayer clients do not load local sidecars; the host restores and distributes the authoritative snapshot.
+Writes use a flushed temporary file followed by atomic replacement. The combined branch advances snapshots and sidecars to schema 4: schema 3 supplies Doom Applied, while schema 4 permits negative values only for Assisted Damage and Damage Prevented. Complete schema-1 and schema-2 files initialize missing Doom Applied to zero; schema-1 migration also initializes Poison Applied and poison diagnostics. Legacy schemas reject negative totals. Poison, Accelerant, Weak, Vulnerable, Strength, and Doom contribution state remains combat-only, while finalized totals persist. Legacy assisted-ownership records are validated so compatible totals can restore, then discarded rather than reinterpreted; newly written sidecars leave that collection empty.
+
+Malformed, oversized, unsupported-schema, incomplete-current-schema, wrong-run, and wrong-checkpoint files fail closed without changing the in-memory state or vanilla saves. Completed, defeated, victorious, and abandoned runs are archived in the RunStats-owned archive directory. Each installed peer derives events and restores its own matching local sidecar; no custom RunStats network messages are registered or sent.
 
 ## Project specification
 
-The authoritative requirements, statistic definitions, multiplayer/save design, uncertainty rules for assisted statistics, safety policy, test matrix, and staged progress are maintained in `RUNSTATS_SPEC.md`. Ambiguous assisted contribution will be omitted instead of guessed. RunStats will write only its own sidecar data and dedicated mod artifacts; it will not alter vanilla game files or unrelated mods.
+The foundational requirements and historical releases are maintained in `RUNSTATS_SPEC.md`. The approved proportional Weak/Vulnerable design is in `WEAK_VULNERABLE_ATTRIBUTION_SPEC.md`, and the signed Strength design is in `STRENGTH_ATTRIBUTION_SPEC.md`. Unattributed contribution remains uncredited instead of being guessed. RunStats writes only its own sidecars and dedicated mod artifacts; it does not alter vanilla game files or unrelated mods.
 
 Future development, duplicate-install prevention, versioning, testing, packaging, Workshop updating, and rollback locations are documented in `MAINTENANCE.md`.

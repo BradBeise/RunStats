@@ -6,10 +6,11 @@
 - **Purpose:** Track meaningful per-player statistics for the complete active run in single-player and co-op, expose them through a native-feeling top-bar UI, and preserve them through save/quit/continue.
 - **Target:** Installed Steam public/default branch, app 2868840, Steam build ID `23811903`; STS2 `v0.107.1`, commit `59260271`, release date 2026-06-18, assembly hash `-1555940892`.
 - **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK 9.0.317 and runtime 9.0.19 are installed system-wide.
-- **Current stage:** The verified v0.3.0 Doom-tracking package is public as Workshop item `3797791393`. Local Doom playtesting passed, and the game-local test copy was removed before publication.
+- **Current stage:** The verified v0.3.0 Doom-tracking package remains public as Workshop item `3797791393`. The `WeakVulnTweaks` branch has completed Strength Phases 1-9; the verified v0.3.1 Release is installed locally and packaged for Workshop review but has not been uploaded.
 - **Completed stages:** Stage 0 Research and Feasibility; Stage 1 Project Scaffold; Stage 2 Run and Player Model; Stage 3 Core Combat Tracking; Stage 4 Assisted Statistics; Stage 5 Cards, Economy, and Items; Stage 6 Multiplayer Hardening; Stage 7 UI; Stage 8 Save/Load and Edge Cases; Stage 9 Final Local Playtest.
-- **Pending release work:** None. Steam's local subscribed cache still showed v0.2.0 immediately after publication; wait for its v0.3.0 download before re-enabling it. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
-- **Overall feasibility:** **PARTIAL.** The mod and ordinary statistics are feasible. Assisted statistics can be exact for supported, uniquely attributable cases, but exact individual attribution is unavailable when multiple players' contributions merge into one non-instanced debuff. The implementation must omit ambiguous credit rather than report a fabricated split.
+- **Overall feasibility:** **PARTIAL.** Ordinary statistics remain direct observations. Standard Weak/Vulnerable assistance uses the approved cumulative-weight convention because STS2 merges those durations. Strength uses separate signed, source/lifetime-aware events because its final counter changes and temporary restorations are observable. Unsupported or ambiguous damage-pipeline cases still fail closed.
+- **Next-release authority:** `WEAK_VULNERABLE_ATTRIBUTION_SPEC.md` defines the approved proportional convention, and `STRENGTH_ATTRIBUTION_SPEC.md` defines signed Strength attribution. The combined branch uses schema 4 so v0.3.0 schema-3 Doom data remains distinguishable from signed assisted totals.
+- **Pending release work:** Steam upload and any commit/pull request require their own explicit authorization. Deferred live multiplayer cases remain labeled as such, including the zero-clamped multi-hit correction that the user accepted from its exact automated reproduction. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
 
 ## Scope and approved requirements
 
@@ -49,7 +50,9 @@ All totals are per `Player.NetId` unless noted.
 
 ### Assisted Damage
 
-Additional actual enemy HP damage caused when Player A's damage-amplifying debuff/status benefits teammate Player B. Player B retains the full actual Damage Dealt. Self-benefit is excluded. For a supported unique contributor, compute a counterfactual through the current damage pipeline with that contributor's qualifying modifier excluded, then compare actual HP loss after Block, integer truncation, HP-loss modifiers, and overkill cap. Never mutate gameplay state during the counterfactual.
+Additional actual enemy HP damage caused when players' Vulnerable benefits an attacker. The attacker retains full Damage Dealt. Compute the existing non-mutating live-multiplier counterfactual, compare actual HP loss after Block, truncation, HP-loss boundaries, and overkill, then split the integer assist pool by cumulative current-cycle Vulnerable applications. Attacker self-shares and unattributed shares are discarded without redistribution.
+
+Signed external Strength contribution to a player's powered attack is also included. For every resolved target/hit, remove Vulnerable's already attributed layer, retain self/native Strength as baseline, and compare actual versus no-external-Strength HP loss after Block, HP, truncation, and overkill. Harmful negative Strength events subtract; helpful events add. Harmful events are processed first, then earliest application order restarts on every hit.
 
 Accelerant is a separately approved assisted case for v0.2.0. Each extra Poison trigger is assigned in Accelerant application order, with upgraded Accelerant contributing two adjacent sponsor positions. The sponsor receives Assisted Damage equal to the integer Poison damage credited to other players on that trigger, never their own or the unattributed share.
 
@@ -65,16 +68,19 @@ For a Poison kill, compare credited Poison damage to that enemy within the curre
 
 Doom Applied appears immediately below Poison Applied. Doom adds to Damage Dealt only when it kills the enemy. The HP Doom actually removes is divided by each player's share of Doom applied to that enemy in the current Doom cycle. For example, 70 and 30 Doom applied to an enemy with 10 HP remaining grants 7 and 3 Damage Dealt. Unattributed Doom remains in the denominator. The largest Doom contributor receives the kill; a Doom tie is broken by actual damage to that enemy, then by deterministic run/enemy tie selection. A prevented Doom death grants neither Doom damage nor kill credit. Removing Doom without a kill ends its contribution cycle.
 
-### Assisted Damage Prevented
+### Damage Prevented
 
-Damage an enemy attack would additionally have dealt before defender-owned mitigation if Player A's damage-reducing debuff/status were absent and teammate Player B is targeted. Self-benefit is excluded. Compare the integer damage entering the Block/HP-loss stages with and without the qualifying teammate-owned reducing modifier. Player B's Block, powers, relics, and own mitigation are not credited to A.
+Damage a Weak enemy attack would additionally have dealt before defender-owned mitigation. Calculate the live Weak counterfactual separately for every player target, sum all target prevention into one command pool, and split that pool once by cumulative current-cycle Weak applications. Split each contributor's gross award between self-protection and teammate protection; discard self-protection and carry indivisible split fractions across attacks. Player Block, powers, relics, and other defender mitigation remain outside this statistic.
 
-### Ambiguous assisted cases
+Signed player-caused Strength changes on an attacking enemy are included separately for every player target/hit. Remove Weak's attributed layer, keep the protected player's own event in that target's baseline, and compare no-external-Strength versus actual pre-Block damage. Enemy positive Strength is harmful and subtracts from prevention before helpful negative Strength events add credit; earliest event order restarts for every target/hit.
+
+### Merged assisted cases
 
 - `PowerModel` has `Owner`, `Applier`, and `Target`, but standard `WeakPower` and `VulnerablePower` use `PowerInstanceType.None` (default). `PowerCmd.FindExistingInstanceForStacking` merges subsequent applications into the existing target power. `PowerCmd.ModifyAmount` receives the new applier but does not update `PowerModel.Applier`.
 - RunStats can ledger applications by patching `PowerCmd.Apply`/`ModifyAmount`, but when durations from several players overlap the game retains only a shared integer duration. There is no intrinsic rule identifying whose duration is currently causal; FIFO, proportional, or Shapley allocation would be a RunStats convention, not exact game evidence.
-- Approved Stage 0 recommendation: credit only cases with one reliably identifiable teammate contributor (or a contribution that can be isolated without ambiguity). When two or more players are causally inseparable, record no individual assist for that event, increment an internal unsupported/ambiguous diagnostic counter, and document the undercount. Do not arbitrarily award the whole amount or split it.
-- Current rating for both assisted metrics: **Reliable approximation (conservative); exact in supported single-contributor cases, incomplete in ambiguous multi-contributor cases.** This policy was approved through Stage 4 authorization and is now implemented.
+- Version 0.2.0 conservatively suppressed mixed ownership. The approved v0.2.1 convention supersedes that behavior by recording each final positive application as a cumulative known-player or unattributed weight until the corresponding enemy power reaches zero.
+- Natural decay and nonzero reductions do not alter weights. Each positive application restarts deterministic reverse-application remainder order. Unknown shares remain denominator participants but are never credited.
+- This is an explicit RunStats allocation convention, not a claim that STS2 preserves intrinsic stack ownership. Damage caps, unprovable Vulnerable HP-loss/redirection overrides, malformed observations, and unsupported duplicate/modded arrangements continue to fail closed.
 
 ## Confirmed environment and mod system
 
@@ -106,8 +112,10 @@ Reliability assumes the exact target build above. All peer-local hooks execute a
 | Elite Kills | Above + `CombatRoom.Encounter.RoomType == RoomType.Elite` | Classify credited kill by current combat encounter | Same killer NetId | High under defined kill-credit rule |
 | Boss Kills | Above + `CombatRoom.Encounter.RoomType == RoomType.Boss` | Classify credited kill by current combat encounter | Same killer NetId | High under defined kill-credit rule |
 | Cards Played | `Hook.AfterCardPlayed(ICombatState, PlayerChoiceContext, CardPlay)`; `CardPlay.Card.Owner`, `PlayIndex`, `PlayCount`, `IsAutoPlay` | Count each successfully completed CardPlay; keep per-card ID counts | Owner `NetId`; action queue is synchronized | High |
-| Assisted Damage | `CreatureCmd.Damage`; `Hook.ModifyDamage`; returned `IEnumerable<AbstractModel> modifiers`; `PowerModel.Applier`; power additive/multiplicative/cap hooks | Non-mutating counterfactual excluding the one qualifying teammate-owned amplifier; compare actual HP loss | Contributor `Applier.Player.NetId`, attacker `dealer.Player.NetId`; sync snapshots and ambiguity state | High only in supported unique-contributor cases; conservative partial overall |
-| Assisted Damage Prevented | Same damage pipeline; especially `WeakPower.ModifyDamageMultiplicative`; Block occurs later in `Creature.DamageBlockInternal` | Counterfactual pre-Block integer incoming damage without the unique teammate-owned reducer | Contributor from power application ledger/Applier; protected target NetId | High only in supported unique-contributor cases; conservative partial overall |
+| Assisted Damage | `CreatureCmd.Damage`; `Hook.ModifyDamage`; final power deltas and live Vulnerable multiplier | Compute actual HP contribution, then allocate by per-enemy cumulative Vulnerable weights | Applying player/pet-owner NetId; attacker self-share discarded | Exact event pool; proportional ownership convention for merged duration |
+| Damage Prevented | Same damage pipeline; `WeakPower.ModifyDamageMultiplicative`; command result scope | Sum every target's pre-Block prevention, allocate once by cumulative Weak weights, split self/teammates | Applying player/pet-owner NetId; target subtotals retained for self split | Exact command pool; proportional ownership convention for merged duration |
+| Strength-assisted damage | Action snapshots; final `StrengthPower` changes/restorations; resolved damage scope | Track signed non-self events by target/source/lifetime; allocate exact post-Block/HP marginal damage per hit | Responsible player action/source NetId; attacker self change omitted | Exact for supported powered-attack pipeline; ambiguous modifiers fail closed |
+| Strength-assisted prevention | Same Strength ledger and resolved enemy damage scope | Exclude current protected player's events; allocate signed pre-Block marginal prevention per target/hit | Event impactor NetId; self-protection omitted per target | Exact for supported powered-attack pipeline; Weak layer separated |
 | Gold Earned | `PlayerCmd.GainGold`; `Hook.AfterModifyingGoldGained`; `PlayerMapPointHistoryEntry.GoldGained` | Prefer saved per-room field and/or patch final positive delta; exclude `wasStolenBack` | Explicit `Player.NetId`; reward operations synchronized | High |
 | Gold Spent | `PlayerCmd.LoseGold(... GoldLossType)`; `Hook.AfterItemPurchased`; saved `GoldSpent` | Count final removed amount only when type is `Spent`; history is source of truth | Explicit player NetId | High |
 | Cards Obtained | `CardPileCmd.Add` permanent-deck path; saved `PlayerMapPointHistoryEntry.CardsGained` | Aggregate saved `CardsGained`; exclude combat-generated paths | Card owner NetId; reward synchronizer carries player | High |
@@ -138,9 +146,9 @@ Reliability assumes the exact target build above. All peer-local hooks execute a
 - `Player.NetId` is a stable `ulong`, serialized in `SerializablePlayer`; `RunState.GetPlayer(netId)` and `CombatState.GetPlayer(netId)` resolve it. `LocalContext.NetId` identifies only the local player and must not be used as the actor for all events.
 - `INetGameService.Type` distinguishes `Singleplayer`, `Host`, and `Client`. The host orders actions. Clients request enqueue; the host broadcasts reliable `ActionEnqueuedMessage`s; every peer reconstructs and executes the same `GameAction`. Hook game actions likewise run on all peers. Therefore ordinary counters can be independently derived on all peers without sending a network message per hit.
 - RunStats must update once per resolved synchronized event on every peer, keyed by the event's actual owner/dealer/receiver, not local player. Never both derive an event and apply a received delta for the same event.
-- The release build is client-optional: it excludes all RunStats `INetMessage` implementations, sends no custom traffic, and declares `affects_gameplay: false`, allowing unmodded friends to join.
-- Every peer with RunStats independently derives the synchronized events it observes and persists its own snapshot. Cross-peer reconciliation after disconnect/rejoin is deliberately not claimed; uncertain restored assisted ownership fails closed.
-- `NetFullCombatState.PowerState` serializes only power ID and amount, not `PowerModel.Applier`. After a rejoin, RunStats therefore omits assisted attribution that cannot be reconstructed with certainty rather than guessing an owner.
+- The release build is client-optional: the dormant RunStats `INetMessage` implementations have been removed, it sends no custom traffic, and it declares `affects_gameplay: false`, allowing unmodded friends to join.
+- Every peer with RunStats independently derives synchronized events and persists its own snapshot. Cross-peer reconciliation after disconnect/rejoin is deliberately not claimed.
+- `NetFullCombatState.PowerState` serializes only power ID and amount, not contribution history. Weighted ledgers therefore start fresh when combat state cannot be reconstructed; RunStats never guesses historical contributors.
 
 ## Save architecture
 
@@ -149,8 +157,8 @@ Reliability assumes the exact target build above. All peer-local hooks execute a
 - Persist RunStats-only fields (damage dealt, block totals, kills, cards played/card counts, assists, revisions/ambiguity diagnostics) in atomic JSON sidecars under each active profile's `com.bradbeise.runstats` directory. Single-player and multiplayer use separate active/pending files, with completed sidecars retained under `archive`. The profile already contains `modded\profile1\RunStatsCollector`; RunStats must neither reuse nor modify that directory. It must also avoid the existing `mod_data` namespaces. This modifies only newly created RunStats-owned user data, never vanilla or other-mod saves.
 - Identify a run with a composite including `RunState.Rng.StringSeed`, game mode, serialized player NetIds, profile ID, and run start time. `RunManager` preserves start time through `SerializableRun.StartTime`; it is private at runtime, so load/start patches must capture it from the `SerializableRun` or generated `RunManager.ToSave` identity. Do not rely on seed alone.
 - Subscribe to `RunManager.RunStarted`; patch or subscribe around `RunManager.SetUpSavedSingleplayer`, `SetUpSavedMultiplayer`, `RunManager.OnEnded`, and `RunManager.CleanUp` as needed. Subscribe to `SaveManager.Saved` so sidecar checkpoints correspond to successful vanilla run saves; also atomically checkpoint after stat mutations with debouncing or at safe action/room boundaries.
-- On load, validate schema/run identity, then merge vanilla-history-backed totals with RunStats-only sidecar fields. On corruption/mismatch, log and fall back safely without touching the vanilla save. Host distributes the authoritative snapshot in multiplayer.
-- v0.2.0 writes snapshot/sidecar schema 2. A complete schema-1 v0.1.0 sidecar migrates by preserving all legacy values and inserting zero for Poison Applied and the three new poison diagnostics. Schema-2 documents missing any current field remain invalid. Combat-only poison weights, fraction carries, kill comparisons, and Accelerant sponsor order are never serialized.
+- On load, validate schema/run identity, then merge vanilla-history-backed totals with RunStats-only sidecar fields. On corruption/mismatch, log and fall back safely without touching the vanilla save. Each installed peer restores its own matching sidecar; no custom RunStats messages are sent.
+- v0.2.1 advances snapshots and sidecars to schema 3 so Assisted Damage and Assisted Damage Prevented can be signed. Complete schema-2 documents migrate every nonnegative total unchanged. Complete schema-1 documents additionally initialize Poison Applied and the three poison diagnostics to zero. Legacy schemas reject negatives; schema 3 allows them only for the two assisted statistics. Combat-only Poison, Weak, Vulnerable, Accelerant, and Strength attribution state is never serialized. Valid legacy `assisted_ownership` records are accepted only so totals restore, then logged and discarded; new sidecars emit an empty collection.
 - On new run, create a new in-memory state. On abandon/death/victory, archive only the matching RunStats sidecar after final state handling. Archives are retained indefinitely as the conservative, non-destructive default.
 
 ## UI architecture
@@ -343,6 +351,25 @@ Keep pure models/calculation/persistence tests independent of STS2 where possibl
 - **Phase 8:** Changed Block Lost to use enemy-sourced `DamageResult.BlockedDamage`, excluding turn clearing and non-enemy reductions. Debug and Release builds passed with 0 warnings/errors, and all 84/84 tests passed in both configurations. The corrected change note covering both v0.2.0 features was pushed before publication.
 - **Published package:** On 2026-09-09, Mega Crit's uploader updated the existing public item `3797791393` under `LordWildling`; no duplicate item was created. Steam's public API returned success, public visibility, file size 158,085 bytes, and the updated poison and Block Lost description. The public change-notes page contained both release-note entries. Published hashes are `RunStats.dll` `E47DE7491555156FE952739E89006C82E75733F8357962C649C2D61852172CB8`, `runstats.pck` `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D`, and `mod_manifest.json` `83A482429AF9F103D674B8FACF6DB92C7271437C0F061EA163A4136FDA5BF974`.
 
+## v0.2.1 WeakVulnTweaks phased implementation record
+
+- **Phase 1:** Reverified STS2 v0.107.1 power and damage ordering; added a checked weighted cycle ledger with reverse-application remainder rotation, unattributed shares, zero refresh, and self-exclusion tests. Decided to retain snapshot/sidecar schema 2 and discard rather than reinterpret legacy ownership metadata.
+- **Phase 2:** Connected final Weak/Vulnerable power deltas to independent per-enemy/effect ledgers. Positive final deltas add cumulative weight, nonzero reductions preserve it, explicit removal/zero clears it, and combat/run boundaries reset all combat-only state.
+- **Phase 3:** Connected Vulnerable's existing Block/HP/overkill-aware integer assist pool to proportional allocation. Attacker self-shares and unattributed shares are discarded; lethal results are attributed before cleanup.
+- **Phase 4:** Expanded Weak to every attacked player, summing one command-level prevention pool before one weighted allocation. Each contributor's gross award is split between self and teammates; exact fractional self-split carry persists until zero. Damage-command scopes defer lethal/reactive cleanup until final rows are processed.
+- **Phase 5:** Retained schema 2, removed live unique/ambiguous ownership persistence, preserved strict legacy decoding and accumulated totals, made all new sidecars emit empty `assisted_ownership`, removed dormant custom network-message sources, and updated documentation. No installation or Workshop mutation occurred.
+- **Automated evidence:** 104 dependency-free tests cover old behavior plus proportional one-to-four contributors/targets, aggregation-before-rounding, reverse remainder rotation, unknown shares, self exclusion and carry, zero refresh, lethal ordering, persistence compatibility, Poison regressions, unchanged UI, and absence of custom network messages. Debug and Release builds pass with zero warnings/errors.
+
+## v0.2.1 Strength phased implementation record
+
+- **Phase 1:** Reverified STS2 v0.107.1 Strength and damage mechanics; added the signed combat-local event/lifetime/allocation model.
+- **Phase 2:** Connected action snapshots, direct/reactive/delayed ownership, temporary restoration, reset, and cleanup observation without damage awards.
+- **Phase 3:** Added exact outgoing per-hit Strength counterfactuals with Block, HP, lethal/overkill, Weak scaling, Vulnerable non-overlap, and harmful-first earliest-event allocation.
+- **Phase 4:** Added incoming pre-Block counterfactuals with per-target self exclusion, Weak non-overlap, downstream Vulnerable scaling, and signed harmful-first allocation.
+- **Phase 5:** Connected atomic signed awards, limited signed storage to the two assisted statistics, and advanced sidecars to schema 3 with strict schema-1/2 migration.
+- **Phase 6:** Updated release/migration/Workshop-draft documentation and performed the complete Debug/Release and package-invariant review without installation or upload.
+- **Automated evidence:** 137 dependency-free tests cover all prior functionality plus Strength ownership/lifetimes, signed ordering, outgoing and incoming boundaries, one-to-four-player/target behavior, schema migration, signed save/continue, UI formatting, atomic overflow, peer-local determinism, and absence of custom network messages.
+
 ## Performance and error handling
 
 - Event/hook subscriptions and scoped Harmony patches only; no `_Process` polling or repeated reflection.
@@ -352,7 +379,7 @@ Keep pure models/calculation/persistence tests independent of STS2 where possibl
 
 ## Testing requirements and current results
 
-- Unit-test stat definitions, actual-delta/overkill/block calculations, serialization/migration, deduplication, run identity, counterfactual rounding, self-assist exclusion, and ambiguous-contributor suppression.
+- Unit-test stat definitions, actual-delta/overkill/block calculations, serialization/migration, deduplication, run identity, counterfactual rounding, proportional contributors, unattributed shares, zero refresh, and self-assist exclusion.
 - Integration-test each hook using `Statistic | Hook | Scenario | Expected | Actual | Status`.
 - Assisted test tables must include the exact columns requested in the project brief. Cover basic teammate, self exclusion, multi-hit, overkill/block, multiple effects/owners, refresh/stack, rounding, synchronization, save/load, and rejoin.
 - Test single-player and at least host + one client; confirm identical revisions/totals and no double application. Test combat, map, events, shop, rest, rewards, acts, new/abandon/death/victory, save/quit/continue, UI scaling/input, exceptions/log volume, and performance.
@@ -398,7 +425,7 @@ The table validates the exact accumulator used by the integration layer and conf
 | Vulnerable rounding | P1 | P2 | 7 | 10 | 3 | 3 | Integer rounding passed |
 | Vulnerable peer replay | P1 | P2 | mixed | mixed | identical totals/revision | identical | Pure synchronization passed |
 
-### Assisted Damage Prevented validation
+### Damage Prevented validation
 
 | Debuff | Owner | Enemy | Protected Player | Base Damage | Modified Damage | Expected Prevented | Actual Prevented | Status |
 |---|---|---|---|---:|---:|---:|---:|---|
@@ -438,8 +465,9 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 ## Known limitations and risks
 
 - Target is early-access v0.107.1; Harmony patches and private/tree paths are version-sensitive. Validate release commit/hash on startup and fail closed on incompatible builds.
-- Exact multi-player ownership of merged non-instanced debuff duration is absent from game state. Stage 4 permanently marks a power instance ambiguous after mixed/unknown effective contributions and deliberately undercounts it until removal.
+- Exact intrinsic ownership of merged non-instanced debuff duration is absent from game state. Version 0.2.1 therefore uses the user-approved cumulative positive-application weighting convention and treats unknown applications as uncredited denominator shares.
 - Stage 4 supports standard Vulnerable and Weak only. Damage-cap participation is omitted; Assisted Damage is also omitted around any active HP-loss/redirection override. This conservative boundary prevents fabricated credit but undercounts otherwise beneficial effects.
+- Strength attribution is limited to exact, reliably owned, powered-attack cases. Incoming hits reduced to zero are reconstructed from the captured pre-modifier attack amount and live Strength only when the additive stack is otherwise known. Unknown source/lifetime, ambiguous restoration, participating damage caps, redirection/HP-loss ambiguity, and unknown additive or multiplicative modifiers are omitted instead of estimated.
 - Source provenance is absent for some indirect damage/healing (`dealer`/`cardSource` may be null). Stage 3 deliberately records a diagnostic and omits Damage Dealt/kill credit when no player or pet-owner provenance exists; general healer-source attribution remains unavailable.
 - `AfterDeath` has no killer argument. Damage-result kill credit is reliable for lethal damage but not forced/environmental death.
 - STS2's existing history persists many ordinary stats but not Damage Dealt, Block, Cards Played, per-player kills, or assists; those require the sidecar.
@@ -454,7 +482,7 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 
 - Entire requirements document and staged process.
 - Stage 0 only; creation of this specification is authorized.
-- Names `RunStats`, `STATS`, `Assisted Damage`, and `Assisted Damage Prevented` remain unchanged unless a later recommendation is approved.
+- Names `RunStats`, `STATS`, and `Assisted Damage` remain unchanged. The visible `Assisted Damage Prevented` label was renamed to `Damage Prevented` by user approval before the v0.3.1 commit; the internal `AssistedDamagePrevented` identifier remains unchanged for save compatibility.
 - Existing-mod/game/process safety rules and first-deployment approval gate.
 - Stage 1 project scaffold, local installation, and menu-only load verification.
 - Stage 2 run/player model and local deployment.
@@ -468,4 +496,4 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 
 ## Next stage
 
-Version 0.3.0 is complete and public. For future updates, preserve `workshop\RunStats\mod_id.txt`, rebuild and repackage Release artifacts, update `changeNote`, and run Mega Crit's uploader against the same workspace so updates target Workshop item `3797791393` rather than creating a duplicate.
+Review the prepared v0.3.1 package and Workshop copy. Upload only with separate explicit authorization, using the preserved `workshop\RunStats\mod_id.txt` value `3797791393` so the existing item is updated rather than duplicated. Commit and pull-request creation also remain separately authorized actions.

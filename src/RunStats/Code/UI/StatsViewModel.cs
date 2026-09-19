@@ -46,7 +46,7 @@ public sealed record StatsViewModel(
             (StatKind.DoomApplied, "Doom Applied"),
             (StatKind.DamageTaken, "Damage Taken"),
             (StatKind.AssistedDamage, "Assisted Damage"),
-            (StatKind.AssistedDamagePrevented, "Assisted Damage Prevented"),
+            (StatKind.AssistedDamagePrevented, "Damage Prevented"),
             (StatKind.HealingDone, "Healing Done"),
             (StatKind.MaxHpGained, "Max HP Gained"),
             (StatKind.BlockGained, "Block Gained"),
