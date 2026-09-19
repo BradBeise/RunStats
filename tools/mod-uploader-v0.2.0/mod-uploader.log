@@ -11,9 +11,10 @@ Uploading 'RunStats' to the steam workshop with item ID 3797791393...
 Status: k_EItemUpdateStatusPreparingContent
 Status: k_EItemUpdateStatusUploadingContent
 Status: k_EItemUpdateStatusUploadingContent
-Status: k_EItemUpdateStatusUploadingContent
-Status: k_EItemUpdateStatusCommittingChanges
-Status: k_EItemUpdateStatusCommittingChanges
+Status: k_EItemUpdateStatusUploadingContent, bytes processed: 0/233281 (0.00%)
+Status: k_EItemUpdateStatusUploadingContent, bytes processed: 321/233281 (0.14%)
+Status: k_EItemUpdateStatusUploadingContent, bytes processed: 233281/233281 (100.00%)
+Status: k_EItemUpdateStatusUploadingPreviewFile
 Status: k_EItemUpdateStatusInvalid
 No modifications were made to dependencies.
 Successfully uploaded 'RunStats' to the workshop with id 3797791393! Browsing to the item in Steam.

@@ -2,12 +2,12 @@
 
 ## Canonical locations
 
-- Source repository: `C:\Users\Mike Major\Desktop\RunStats`
+- Source repository: `C:\Users\Brad Beise\Documents\Repos\RunStats`
 - Historical v0.1.0 package: `C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats\rollback\v0.1.0`
-- Game-local development destination: `D:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\RunStats`
-- Workshop upload workspace: `C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats`
-- Subscribed production copy: `D:\SteamLibrary\steamapps\workshop\content\2868840\3797791393`
-- Mega Crit uploader: `C:\Users\Mike Major\Desktop\RunStats\tools\mod-uploader-v0.2.0`
+- Game-local development destination: `D:\Steam\steamapps\common\Slay the Spire 2\mods\RunStats`
+- Workshop upload workspace: `C:\Users\Brad Beise\Documents\Repos\RunStats\workshop\RunStats`
+- Subscribed production copy: `D:\Steam\steamapps\workshop\content\2868840\3797791393`
+- Mega Crit uploader: `C:\Users\Brad Beise\Documents\Repos\RunStats\tools\mod-uploader-v0.2.0`
 - Workshop item: `https://steamcommunity.com/sharedfiles/filedetails/?id=3797791393`
 - Current Steam profile settings root: `C:\Users\Brad Beise\AppData\Roaming\SlayTheSpire2\steam\76561198407892354`
 
@@ -161,7 +161,7 @@ The user could not recreate the four-player scenario after installation and acce
 
 Prepared 2026-09-17 after explicit Strength Phase 9 approval and refreshed 2026-09-18 with the initialization hotfix. Project/package version is `0.3.1`, assembly version is `0.3.1.0`, snapshot/sidecar schema remains 4, `affects_gameplay` remains `false`, and the Release assembly contains no custom network-message implementation. Debug and Release builds have zero warnings/errors and all 143 tests pass in both configurations.
 
-The published v0.3.0 package was preserved first under `workshop\RunStats\rollback\v0.3.0`. `mod_id.txt` remains `3797791393`, the thumbnail remains 735,516 bytes, and the uploader content contains exactly these verified v0.3.1 files:
+The published v0.3.0 package was preserved first under `workshop\RunStats\rollback\v0.3.0`. `mod_id.txt` remains `3797791393`, and the thumbnail remains 735,516 bytes. The following hashes describe the earlier prepared v0.3.1 package; the final published build is recorded below.
 
 | File | SHA-256 |
 | --- | --- |
@@ -170,6 +170,20 @@ The published v0.3.0 package was preserved first under `workshop\RunStats\rollba
 | `mod_manifest.json` | `322D17AF10E56DBCED064ABE3812BE097890364A96FBD6DA623CF403077C840B` |
 
 The visible `Assisted Damage Prevented` row was renamed to `Damage Prevented` before commit; the internal persisted identifier remains unchanged. The 2026-09-18 hotfix updates the `Hook.ModifyDamage` Harmony prefix to bind the game's `damage` parameter (instead of the obsolete `amount` name), preventing `PatchAll()` from aborting and restoring RunStats initialization and its top-right menu. A regression test locks that parameter contract. The local Release installation is refreshed from the final package before commit. No Steam uploader command was run and no visibility/publication state changed.
+
+### Published v0.3.1 Workshop package
+
+Published 2026-09-18 after the user's explicit release request. `main` was fast-forwarded to `71c2a84`. The installed game is at `D:\Steam\steamapps\common\Slay the Spire 2`, still v0.107.1. Debug and Release solution builds completed with zero warnings/errors using that game's assembly directory, and all 143 tests passed in both configurations. The freshly rebuilt Release DLL differs in hash from the earlier prepared DLL; the uploader content was repackaged from this checkout before publication.
+
+The final package contains exactly these files. The assembly version is `0.3.1.0`, the manifest version is `0.3.1`, `affects_gameplay` is `false`, and the Release assembly contains no custom network-message implementation.
+
+| File | SHA-256 |
+| --- | --- |
+| `RunStats.dll` | `B454C00FBC3023650F403410DAD82174D9560A59E896BF61AE693810D4F4AA59` |
+| `runstats.pck` | `F4A1A43C637230E2994F7D20FAA96DE5473A462DC653B59713328529EDF8379D` |
+| `mod_manifest.json` | `293B1B0BAA15CCA6DC653AED565C2681B1F7DB30B94EEF2E692BDE5F1C8C931F` |
+
+Mega Crit's uploader reported successful publication to the existing item `3797791393`. Steam's public item-details API returned success, public visibility, file size 234,373 bytes, and an updated time of 2026-09-19 02:58:02 UTC; its description names v0.3.1. The public change-notes page contains the v0.3.1 note. Immediately afterward, the local Steam-subscribed cache still contained the previous DLL; wait for Steam to refresh it before using that copy.
 
 ## Future change workflow
 
@@ -199,7 +213,7 @@ The visible `Assisted Damage Prevented` row was renamed to `Damage Prevented` be
 9. Review `workshop.json`, especially visibility and `changeNote`, then upload from the uploader directory:
 
    ```powershell
-   .\ModUploader.exe upload -w "C:\Users\Mike Major\Desktop\RunStats\workshop\RunStats"
+   .\ModUploader.exe upload -w "C:\Users\Brad Beise\Documents\Repos\RunStats\workshop\RunStats"
    ```
 
 10. Verify the existing item ID remains `3797791393`, inspect the public page, wait for Steam to update the subscribed copy, and verify its files/hashes before launching the game.

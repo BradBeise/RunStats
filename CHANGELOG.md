@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-09-18
+
+- Add proportional Weak and Vulnerable assistance for multiple contributors, with unknown ownership and self-benefit excluded.
+- Add signed Strength assistance from reliably owned changes, calculated per hit with exact Block, HP, Weak, Vulnerable, and zero-damage boundaries.
+- Advance sidecars to schema 4 while preserving compatible totals from v0.1.0 through v0.3.0.
+- Fix the damage hook parameter binding so RunStats initializes and its top-right menu appears.
+
 ## 0.3.0 — 2026-09-14
 
 - Add Doom Applied immediately below Poison Applied. Positive Doom from cards, relics, potions, and other sources is credited to the applying player. Doom copied by Misery is credited to the player who played Misery.

@@ -6,11 +6,11 @@
 - **Purpose:** Track meaningful per-player statistics for the complete active run in single-player and co-op, expose them through a native-feeling top-bar UI, and preserve them through save/quit/continue.
 - **Target:** Installed Steam public/default branch, app 2868840, Steam build ID `23811903`; STS2 `v0.107.1`, commit `59260271`, release date 2026-06-18, assembly hash `-1555940892`.
 - **Engine/runtime:** Godot 4.5.1 C#, game target .NET 9.0. Local SDK 9.0.317 and runtime 9.0.19 are installed system-wide.
-- **Current stage:** The verified v0.3.0 Doom-tracking package remains public as Workshop item `3797791393`. The `WeakVulnTweaks` branch has completed Strength Phases 1-9; the verified v0.3.1 Release is installed locally and packaged for Workshop review but has not been uploaded.
+- **Current stage:** The verified v0.3.1 Weak/Vulnerable and Strength update is public as Workshop item `3797791393`. Strength Phases 1-9 are complete; the published package is preserved in `workshop/RunStats/content`.
 - **Completed stages:** Stage 0 Research and Feasibility; Stage 1 Project Scaffold; Stage 2 Run and Player Model; Stage 3 Core Combat Tracking; Stage 4 Assisted Statistics; Stage 5 Cards, Economy, and Items; Stage 6 Multiplayer Hardening; Stage 7 UI; Stage 8 Save/Load and Edge Cases; Stage 9 Final Local Playtest.
 - **Overall feasibility:** **PARTIAL.** Ordinary statistics remain direct observations. Standard Weak/Vulnerable assistance uses the approved cumulative-weight convention because STS2 merges those durations. Strength uses separate signed, source/lifetime-aware events because its final counter changes and temporary restorations are observable. Unsupported or ambiguous damage-pipeline cases still fail closed.
 - **Next-release authority:** `WEAK_VULNERABLE_ATTRIBUTION_SPEC.md` defines the approved proportional convention, and `STRENGTH_ATTRIBUTION_SPEC.md` defines signed Strength attribution. The combined branch uses schema 4 so v0.3.0 schema-3 Doom data remains distinguishable from signed assisted totals.
-- **Pending release work:** Steam upload and any commit/pull request require their own explicit authorization. Deferred live multiplayer cases remain labeled as such, including the zero-clamped multi-hit correction that the user accepted from its exact automated reproduction. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
+- **Pending release work:** Wait for Steam to refresh the local subscribed copy and verify its files before using it. Deferred live multiplayer cases remain labeled as such, including the zero-clamped multi-hit correction that the user accepted from its exact automated reproduction. Live two-peer rejoin reconciliation remains an explicitly documented limitation rather than a release claim.
 
 ## Scope and approved requirements
 
@@ -496,4 +496,4 @@ The Stage 5 table tests the exact state accumulator and derived Most Played Card
 
 ## Next stage
 
-Review the prepared v0.3.1 package and Workshop copy. Upload only with separate explicit authorization, using the preserved `workshop\RunStats\mod_id.txt` value `3797791393` so the existing item is updated rather than duplicated. Commit and pull-request creation also remain separately authorized actions.
+Version 0.3.1 was uploaded to the existing public Workshop item `3797791393` with `mod_id.txt` unchanged. Wait for Steam to refresh the subscribed copy before enabling it alongside any local installation. Deferred live multiplayer cases remain documented above.

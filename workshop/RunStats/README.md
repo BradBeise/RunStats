@@ -10,6 +10,6 @@ This directory is the Steam Workshop upload workspace for public RunStats item `
 
 The first upload was reviewed privately before the item was updated to `"visibility": "public"`. Future uploads use the same `mod_id.txt` and update this item.
 
-The `content` directory is the reviewed RunStats v0.3.1 package prepared for the existing public item `3797791393`. It contains only the DLL, PCK, and manifest. It has not been uploaded; publication requires separate explicit authorization.
+The `content` directory is the published RunStats v0.3.1 package for the existing public item `3797791393`. It contains only the DLL, PCK, and manifest.
 
-The reviewed v0.3.1 Weak/Vulnerable and Strength description and change note are synchronized with `WORKSHOP_UPDATE_DRAFT.md`. Do not upload until separately authorized.
+The published v0.3.1 Weak/Vulnerable and Strength description and change note are synchronized with `WORKSHOP_UPDATE_DRAFT.md`.

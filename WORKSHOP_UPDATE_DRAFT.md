@@ -1,6 +1,6 @@
 # RunStats v0.3.1 Workshop update draft
 
-This is the reviewed copy synchronized into `workshop/RunStats/workshop.json` during Strength Phase 9. It does not authorize an upload or visibility change for Workshop item `3797791393`.
+This is the reviewed copy synchronized into `workshop/RunStats/workshop.json` during Strength Phase 9. Version 0.3.1 was published to the existing public Workshop item `3797791393` on 2026-09-18.
 
 ## Proposed description
 
@@ -48,4 +48,4 @@ RunStats v0.3.1 adds proportional Weak and Vulnerable attribution for multiple c
 - Keep project, assembly, manifest, description, and change note synchronized at version 0.3.1.
 - Preserve `workshop/RunStats/mod_id.txt` with item ID `3797791393` and the published rollback package.
 - Package exactly `RunStats.dll`, `runstats.pck`, and `mod_manifest.json`.
-- Do not run the uploader or change visibility without separate explicit authorization.
+- The 2026-09-18 upload used the user's explicit release request and retained public visibility.
